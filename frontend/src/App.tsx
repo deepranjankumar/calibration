@@ -3,23 +3,26 @@ import { BodyMeshViewer } from './components/ThreeBodyMesh/BodyMeshViewer';
 import { AIWorkflowPanel } from './components/AIWorkflow/AIWorkflowPanel';
 import { BiomechanicalPanel } from './components/BiomechanicalAnalytics/BiomechanicalPanel';
 import { ClinicalReportModal } from './components/ClinicalReport/ClinicalReportModal';
-import type { Examination } from './types/examination';
+import type { Examination, PatientCalibration } from './types/examination';
 import {
   createExamination,
   submitStepJson,
   submitStepFormData,
+  calibratePatientMesh,
 } from './services/api';
 import {
   Stethoscope,
   PlusCircle,
   FileText,
   Activity,
+  UserCheck,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [selectedRegion, setSelectedRegion] = useState<string>('RIGHT_KNEE');
   const [affectedSide, setAffectedSide] = useState<'RIGHT' | 'LEFT'>('RIGHT');
   const [examination, setExamination] = useState<Examination | null>(null);
+  const [patientCalibration, setPatientCalibration] = useState<PatientCalibration | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
@@ -40,6 +43,7 @@ export const App: React.FC = () => {
         patient_gender: data.patient_gender,
         selected_region: data.selected_region,
         affected_side: data.affected_side,
+        patient_calibration: patientCalibration,
       });
       setExamination(newExam);
       setSelectedRegion(data.selected_region);
@@ -56,8 +60,18 @@ export const App: React.FC = () => {
     setSelectedRegion(region);
     setAffectedSide(side);
 
-    // If examination is not already active, immediately identify the anatomical region and start AI protocol
+    // If examination is not already active, ensure we have patient calibration and start AI protocol
     if (!examination) {
+      let calib = patientCalibration;
+      if (!calib) {
+        try {
+          calib = await calibratePatientMesh(null, true);
+          setPatientCalibration(calib);
+        } catch (e) {
+          console.warn('Auto-calibration fallback:', e);
+        }
+      }
+
       await handleStartExam({
         patient_id: 'PT-4821',
         patient_name: 'John Doe',
@@ -136,8 +150,11 @@ export const App: React.FC = () => {
       setExamination(null);
       setSelectedRegion('RIGHT_KNEE');
       setAffectedSide('RIGHT');
+      setPatientCalibration(null);
     }
   };
+
+  const effectiveCalibration = patientCalibration || examination?.patient_calibration || null;
 
   return (
     <div className="exam-app">
@@ -164,6 +181,13 @@ export const App: React.FC = () => {
 
         {/* Global Toolbar */}
         <div className="flex items-center gap-3">
+          {effectiveCalibration && (
+            <div className="hidden md:flex items-center gap-1.5 bg-emerald-950/80 border border-emerald-600/50 px-2.5 py-1 rounded-xl text-[11px] text-emerald-300">
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Patient Mesh Calibrated ({effectiveCalibration.body_proportions.estimated_height_cm}cm)</span>
+            </div>
+          )}
+
           {examination ? (
             <div className="flex items-center gap-2 bg-slate-900 border border-cyan-500/40 px-3 py-1 rounded-xl text-xs">
               <span className="text-slate-400">Patient:</span>
@@ -176,7 +200,7 @@ export const App: React.FC = () => {
           ) : (
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-700/80 px-3 py-1 rounded-xl text-xs text-slate-400">
               <Activity className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-              <span>Ready for Localization</span>
+              <span>{effectiveCalibration ? 'Mesh Calibrated: Select Pain Point' : 'Step 1: Patient Photo Intake'}</span>
             </div>
           )}
 
@@ -206,6 +230,9 @@ export const App: React.FC = () => {
         <div className="exam-left-panel">
           <AIWorkflowPanel
             examination={examination}
+            patientCalibration={effectiveCalibration}
+            onCalibratePatient={(calib) => setPatientCalibration(calib)}
+            onResetCalibration={() => setPatientCalibration(null)}
             onStartExam={handleStartExam}
             onSubmitStep={handleSubmitStep}
             onOpenReport={() => setIsReportOpen(true)}
@@ -227,6 +254,7 @@ export const App: React.FC = () => {
               measurements={examination?.measurements || []}
               findings={examination?.findings || []}
               isExamActive={Boolean(examination && examination.status === 'ACTIVE')}
+              patientCalibration={effectiveCalibration}
             />
           </div>
 

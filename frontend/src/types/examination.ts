@@ -44,6 +44,34 @@ export interface ExaminationStep {
   completed_at?: string | null;
 }
 
+export interface Landmark3D {
+  id: number;
+  name?: string;
+  x: number;
+  y: number;
+  z: number;
+  visibility: number;
+}
+
+export interface BodyProportions {
+  shoulder_width_m: number;
+  hip_width_m: number;
+  torso_height_m: number;
+  right_thigh_length_m: number;
+  right_shin_length_m: number;
+  estimated_height_cm: number;
+}
+
+export interface PatientCalibration {
+  status: string;
+  is_calibrated: boolean;
+  landmarks_3d: Landmark3D[];
+  key_joint_positions: Record<string, [number, number, number]>;
+  body_proportions: BodyProportions;
+  annotated_image_url?: string | null;
+  photo_url?: string | null;
+}
+
 export interface TimeSeriesSample {
   time_sec: number;
   flexion_angle_deg: number;
@@ -51,6 +79,7 @@ export interface TimeSeriesSample {
   hip?: [number, number] | null;
   knee?: [number, number] | null;
   ankle?: [number, number] | null;
+  frame_landmarks_3d?: Landmark3D[] | null;
 }
 
 export interface BiomechanicalMeasurement {
@@ -111,6 +140,7 @@ export interface Examination {
   steps: ExaminationStep[];
   findings: ClinicalFinding[];
   measurements: BiomechanicalMeasurement[];
+  patient_calibration?: PatientCalibration | null;
 }
 
 export interface StructuredClinicalReport {

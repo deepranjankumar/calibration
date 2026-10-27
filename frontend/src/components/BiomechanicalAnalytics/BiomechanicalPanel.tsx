@@ -14,11 +14,14 @@ export const BiomechanicalPanel: React.FC<BiomechanicalPanelProps> = ({
 
   if (!latest) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-center">
-        <div className="text-slate-500 text-xs flex items-center justify-center gap-1.5 py-4">
-          <Activity className="w-4 h-4 text-slate-600" />
-          Awaiting Computer Vision Active Movement Analysis
+      <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl px-3 py-2 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2 text-slate-400">
+          <Activity className="w-3.5 h-3.5 text-cyan-500 animate-pulse" />
+          <span>Biomechanical Telemetry Stream</span>
         </div>
+        <span className="text-[11px] text-slate-500 font-mono">
+          Awaiting movement video analysis...
+        </span>
       </div>
     );
   }

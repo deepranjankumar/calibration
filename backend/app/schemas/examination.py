@@ -12,6 +12,16 @@ class ExaminationCreate(BaseModel):
     selected_region: str = Field(default="RIGHT_KNEE", description="Selected body region: RIGHT_KNEE, LEFT_KNEE, LUMBAR_SPINE, etc.")
     affected_side: str = Field(default="RIGHT", description="RIGHT, LEFT, or BILATERAL")
     patient_orientation: str = Field(default="SAGITTAL_RIGHT", description="Viewing profile")
+    patient_calibration: Optional[Dict[str, Any]] = None
+
+class PatientCalibrationResponse(BaseModel):
+    status: str
+    is_calibrated: bool
+    landmarks_3d: List[Dict[str, Any]]
+    key_joint_positions: Dict[str, List[float]]
+    body_proportions: Dict[str, Any]
+    annotated_image_url: Optional[str] = None
+    photo_url: Optional[str] = None
 
 class StepInputConfig(BaseModel):
     choices: Optional[List[Dict[str, str]]] = None
@@ -93,6 +103,7 @@ class ExaminationDetailResponse(BaseModel):
     specific_zone: Optional[str] = None
     affected_side: str
     patient_orientation: str
+    patient_calibration: Optional[Dict[str, Any]] = None
     status: str
     protocol_name: str
     current_step_id: str

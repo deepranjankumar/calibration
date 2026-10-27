@@ -13,11 +13,13 @@ from app.schemas.examination import (
     ExaminationStepSchema,
     StepSubmissionRequest,
     StructuredClinicalReport,
-    ClinicianSignOffRequest
+    ClinicianSignOffRequest,
+    PatientCalibrationResponse
 )
 from app.services.engine import ExaminationWorkflowEngine
 from app.services.report_generator import build_structured_report
 from app.protocols.knee_protocol import KNEE_EXAMINATION_PROTOCOL
+from app.vision.pose_tracker import pose_analyzer
 from app.config import settings
 
 router = APIRouter(prefix="/examinations", tags=["examinations"])
@@ -34,6 +36,7 @@ def _format_exam_response(exam) -> dict:
         "specific_zone": exam.specific_zone,
         "affected_side": exam.affected_side,
         "patient_orientation": exam.patient_orientation,
+        "patient_calibration": getattr(exam, "patient_calibration", None),
         "status": exam.status,
         "protocol_name": exam.protocol_name,
         "current_step_id": exam.current_step_id,
@@ -52,6 +55,50 @@ def _format_exam_response(exam) -> dict:
         "measurements": exam.measurements
     }
 
+@router.post("/calibrate-patient-mesh", response_model=PatientCalibrationResponse)
+async def calibrate_patient_mesh(
+    photo: Optional[UploadFile] = File(None),
+    is_demo: Optional[bool] = Form(False)
+):
+    """
+    Step 0 of Workflow: Analyzes patient photo via MediaPipe Pose 3D,
+    extracts exact body dimensions, skeletal proportions, and 3D landmarks,
+    and returns the calibration model to render the patient-specific 3D body mesh.
+    """
+    image_path = None
+    annotated_filename = None
+    annotated_path = None
+
+    if photo and photo.filename:
+        ext = Path(photo.filename).suffix or ".jpg"
+        saved_filename = f"patient_photo_{uuid.uuid4().hex[:8]}{ext}"
+        saved_path = settings.UPLOAD_DIR / saved_filename
+        with open(saved_path, "wb") as buffer:
+            shutil.copyfileobj(photo.file, buffer)
+        image_path = str(saved_path)
+
+        annotated_filename = f"calib_{uuid.uuid4().hex[:8]}.jpg"
+        annotated_path = str(settings.STATIC_DIR / annotated_filename)
+
+    calibration_result = pose_analyzer.calibrate_patient_from_image(
+        image_path=image_path,
+        output_annotated_path=annotated_path,
+        is_demo=bool(is_demo)
+    )
+
+    photo_url = f"/uploads/{Path(image_path).name}" if image_path else None
+    annotated_url = f"/static/{annotated_filename}" if annotated_filename else None
+
+    return {
+        "status": calibration_result["status"],
+        "is_calibrated": calibration_result["is_calibrated"],
+        "landmarks_3d": calibration_result["landmarks_3d"],
+        "key_joint_positions": calibration_result["key_joint_positions"],
+        "body_proportions": calibration_result["body_proportions"],
+        "annotated_image_url": annotated_url,
+        "photo_url": photo_url
+    }
+
 @router.post("", response_model=ExaminationDetailResponse)
 def create_examination(payload: ExaminationCreate, db: Session = Depends(get_db)):
     """
@@ -66,7 +113,8 @@ def create_examination(payload: ExaminationCreate, db: Session = Depends(get_db)
         patient_gender=payload.patient_gender or "Unspecified",
         selected_region=payload.selected_region,
         affected_side=payload.affected_side,
-        patient_orientation=payload.patient_orientation
+        patient_orientation=payload.patient_orientation,
+        patient_calibration=payload.patient_calibration
     )
     return _format_exam_response(exam)
 

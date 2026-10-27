@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import type { Examination } from '../../types/examination';
+import type { Examination, PatientCalibration } from '../../types/examination';
+import { calibratePatientMesh } from '../../services/api';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -14,10 +15,16 @@ import {
   FileText,
   Volume2,
   Sparkles,
+  Camera,
+  UserCheck,
+  RefreshCw,
 } from 'lucide-react';
 
 interface AIWorkflowPanelProps {
   examination: Examination | null;
+  patientCalibration?: PatientCalibration | null;
+  onCalibratePatient?: (calibration: PatientCalibration) => void;
+  onResetCalibration?: () => void;
   onStartExam: (data: {
     patient_id: string;
     patient_name: string;
@@ -43,6 +50,9 @@ interface AIWorkflowPanelProps {
 
 export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
   examination,
+  patientCalibration,
+  onCalibratePatient,
+  onResetCalibration,
   onStartExam,
   onSubmitStep,
   onOpenReport,
@@ -71,6 +81,108 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoElemRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Photo intake & 3D mesh calibration state
+  const [isCalibratingPhoto, setIsCalibratingPhoto] = useState<boolean>(false);
+  const [isPhotoCameraOpen, setIsPhotoCameraOpen] = useState<boolean>(false);
+  const [calibrationError, setCalibrationError] = useState<string | null>(null);
+  const photoVideoRef = useRef<HTMLVideoElement | null>(null);
+  const photoStreamRef = useRef<MediaStream | null>(null);
+  const photoCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const handleStartPhotoCamera = async () => {
+    setCalibrationError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      photoStreamRef.current = stream;
+      setIsPhotoCameraOpen(true);
+      setTimeout(() => {
+        if (photoVideoRef.current) {
+          photoVideoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (err: any) {
+      setCalibrationError('Could not access camera for patient photo. You can upload an image file or use Instant Biometric Calibration.');
+    }
+  };
+
+  const handleStopPhotoCamera = () => {
+    if (photoStreamRef.current) {
+      photoStreamRef.current.getTracks().forEach((track) => track.stop());
+      photoStreamRef.current = null;
+    }
+    setIsPhotoCameraOpen(false);
+  };
+
+  const handleCapturePhoto = async () => {
+    if (!photoVideoRef.current) return;
+    setIsCalibratingPhoto(true);
+    setCalibrationError(null);
+
+    try {
+      const video = photoVideoRef.current;
+      const canvas = photoCanvasRef.current || document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas 2D context unavailable');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      handleStopPhotoCamera();
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92)
+      );
+      if (!blob) throw new Error('Failed to capture photo frame');
+
+      const file = new File([blob], `patient_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const calibration = await calibratePatientMesh(file, false);
+      if (onCalibratePatient) {
+        onCalibratePatient(calibration);
+      }
+    } catch (err: any) {
+      setCalibrationError(err.message || 'Failed to calibrate patient mesh from photo.');
+    } finally {
+      setIsCalibratingPhoto(false);
+    }
+  };
+
+  const handleUploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+    setIsCalibratingPhoto(true);
+    setCalibrationError(null);
+
+    try {
+      const calibration = await calibratePatientMesh(file, false);
+      if (onCalibratePatient) {
+        onCalibratePatient(calibration);
+      }
+    } catch (err: any) {
+      setCalibrationError(err.message || 'Failed to calibrate patient mesh from uploaded photo.');
+    } finally {
+      setIsCalibratingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleInstantDemoCalibration = async () => {
+    setIsCalibratingPhoto(true);
+    setCalibrationError(null);
+    try {
+      const calibration = await calibratePatientMesh(null, true);
+      if (onCalibratePatient) {
+        onCalibratePatient(calibration);
+      }
+    } catch (err: any) {
+      setCalibrationError(err.message || 'Instant biometric calibration failed.');
+    } finally {
+      setIsCalibratingPhoto(false);
+    }
+  };
 
   const currentStep = examination?.current_step;
 
@@ -192,22 +304,207 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
         {/* === SCREEN 1: PRE-EXAM REGION & PATIENT INTAKE === */}
         {!examination && (
           <div className="space-y-4">
-            {/* Step 1 Directive Card */}
-            <div className="bg-slate-950/90 border border-cyan-500/40 rounded-2xl p-4 shadow-xl">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 font-mono bg-cyan-950/80 px-2.5 py-0.5 rounded-full border border-cyan-800/60">
-                  Step 1: Patient Symptom Localization
+            {/* --- PHASE 0: PATIENT PHOTO INTAKE & 3D MESH CALIBRATION --- */}
+            <div className="bg-slate-950/95 border border-cyan-500/50 rounded-2xl p-4 shadow-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 font-mono bg-cyan-950/80 px-2.5 py-0.5 rounded-full border border-cyan-800/60 flex items-center gap-1.5">
+                  <Camera className="w-3 h-3 text-cyan-400" />
+                  Step 1: Patient Photo Intake
                 </span>
                 <span className="text-[10px] text-slate-400 font-mono">
-                  Live Patient Intake
+                  {patientCalibration ? 'Calibrated ✓' : 'Required for 3D Mesh'}
+                </span>
+              </div>
+
+              {!patientCalibration ? (
+                <>
+                  <div>
+                    <h2 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-cyan-400" />
+                      Take Photo to Reconstruct Exact Patient 3D Body Mesh
+                    </h2>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Capture or upload a photo of the patient. Python MediaPipe 3D Pose extracts 33 anatomical landmarks to reconstruct an exact 3D wireframe mesh body matching their specific height, limb lengths, and proportions.
+                    </p>
+                  </div>
+
+                  {/* Camera Viewfinder when Live Camera is Open */}
+                  {isPhotoCameraOpen && (
+                    <div className="space-y-2 bg-slate-900 p-3 rounded-xl border border-cyan-500/60">
+                      <div className="relative aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center border border-slate-800">
+                        <video
+                          ref={photoVideoRef}
+                          autoPlay
+                          playsInline
+                          className="w-full h-full object-cover"
+                        />
+                        {/* Anatomical Alignment Outline Box */}
+                        <div className="absolute inset-4 border-2 border-dashed border-cyan-400/70 rounded-xl pointer-events-none flex items-center justify-center">
+                          <span className="bg-black/70 text-[10px] font-mono text-cyan-300 px-2 py-0.5 rounded backdrop-blur">
+                            Align Patient in View (Standing or Seated)
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCapturePhoto}
+                          disabled={isCalibratingPhoto}
+                          className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          Snap Photo & Reconstruct Exact 3D Mesh
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleStopPhotoCamera}
+                          className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action Buttons to Capture, Upload, or Instant Demo */}
+                  {!isPhotoCameraOpen && (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={handleStartPhotoCamera}
+                          disabled={isCalibratingPhoto}
+                          className="py-2.5 px-3 bg-cyan-700/80 hover:bg-cyan-600 text-white text-xs font-bold rounded-xl border border-cyan-500/60 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-cyan-200" />
+                          Live Webcam Photo
+                        </button>
+
+                        <label className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md">
+                          <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                          Upload Photo File
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleUploadPhoto}
+                            disabled={isCalibratingPhoto}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+
+                      {/* Instant Clinical Biometric Calibration Option */}
+                      <button
+                        type="button"
+                        onClick={handleInstantDemoCalibration}
+                        disabled={isCalibratingPhoto}
+                        className="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-cyan-300 text-xs font-bold rounded-xl border border-dashed border-cyan-500/50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                        ⚡ Instant Clinical Biometric Calibration (Demo/Fast-Track)
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Calibrating Loading Banner */}
+                  {isCalibratingPhoto && (
+                    <div className="p-3 bg-cyan-950/80 border border-cyan-500/60 rounded-xl text-xs text-cyan-200 flex items-center gap-3 animate-pulse">
+                      <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
+                      <div>
+                        <div className="font-bold">MediaPipe 3D Landmark Extraction in Progress...</div>
+                        <div className="text-[10px] text-cyan-400">
+                          Extracting 33 biometric landmarks & building patient-specific 3D wireframe mesh
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Calibration Error */}
+                  {calibrationError && (
+                    <div className="p-3 bg-red-950/80 border border-red-500/60 rounded-xl text-xs text-red-200 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                      <span>{calibrationError}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* Patient Mesh Calibrated Status Card */
+                <div className="space-y-3">
+                  <div className="bg-emerald-950/70 border border-emerald-500/50 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
+                        <UserCheck className="w-4 h-4 text-emerald-400" />
+                        Exact Patient 3D Body Mesh Calibrated
+                      </div>
+                      <span className="text-[10px] bg-emerald-900/90 text-emerald-300 px-2 py-0.5 rounded font-mono border border-emerald-600/60">
+                        33 3D Spatial Landmarks
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1.5 pt-1 text-center font-mono">
+                      <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                        <div className="text-[9px] text-slate-400 uppercase">Height</div>
+                        <div className="text-xs font-bold text-cyan-300">
+                          {patientCalibration.body_proportions.estimated_height_cm}cm
+                        </div>
+                      </div>
+                      <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                        <div className="text-[9px] text-slate-400 uppercase">Shoulders</div>
+                        <div className="text-xs font-bold text-cyan-300">
+                          {(patientCalibration.body_proportions.shoulder_width_m * 100).toFixed(0)}cm
+                        </div>
+                      </div>
+                      <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                        <div className="text-[9px] text-slate-400 uppercase">Pelvis</div>
+                        <div className="text-xs font-bold text-cyan-300">
+                          {(patientCalibration.body_proportions.hip_width_m * 100).toFixed(0)}cm
+                        </div>
+                      </div>
+                      <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                        <div className="text-[9px] text-slate-400 uppercase">Torso</div>
+                        <div className="text-xs font-bold text-cyan-300">
+                          {(patientCalibration.body_proportions.torso_height_m * 100).toFixed(0)}cm
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[11px] text-slate-400">
+                      Wireframe rendered in 3D viewer matching patient biometrics
+                    </span>
+                    {onResetCalibration && (
+                      <button
+                        type="button"
+                        onClick={onResetCalibration}
+                        className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer underline"
+                      >
+                        <RotateCw className="w-3 h-3" />
+                        Retake / Recalibrate Photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* --- PHASE 1: INTERACTIVE PAIN LOCALIZATION ON 3D MESH --- */}
+            <div className="bg-slate-950/90 border border-cyan-500/40 rounded-2xl p-4 shadow-xl">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 font-mono bg-cyan-950/80 px-2.5 py-0.5 rounded-full border border-cyan-800/60 flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3 text-cyan-400" />
+                  Step 2: Patient Pain Localization
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Interactive Selection
                 </span>
               </div>
               <h2 className="text-sm font-bold text-white mb-1.5 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-cyan-400" />
                 Select Patient's Painful Location
               </h2>
               <div className="bg-cyan-950/60 border border-cyan-600/40 rounded-xl p-3 text-xs text-cyan-200/95 leading-relaxed">
-                <strong>Operator Directive:</strong> Instruct patient to point to where their pain is located. Click that joint directly on the <strong>3D Dense Wireframe Mesh</strong> (or click any quick region below) to immediately identify the anatomical region and launch the AI examination.
+                <strong>Operator Directive:</strong> Ask the patient where they feel pain. <strong>Click directly on that point on the patient's 3D wireframe mesh body</strong> (or choose a quick anatomical region below) to identify the anatomical region and start the AI questions.
               </div>
             </div>
 

@@ -29,7 +29,8 @@ class ExaminationWorkflowEngine:
         patient_gender: str = "Unspecified",
         selected_region: str = "RIGHT_KNEE",
         affected_side: str = "RIGHT",
-        patient_orientation: str = "SAGITTAL_RIGHT"
+        patient_orientation: str = "SAGITTAL_RIGHT",
+        patient_calibration: Optional[Dict[str, Any]] = None
     ) -> Examination:
         """
         Creates new examination record and seeds protocol steps in strict sequence
@@ -46,6 +47,7 @@ class ExaminationWorkflowEngine:
             selected_region=selected_region,
             affected_side=affected_side,
             patient_orientation=patient_orientation,
+            patient_calibration=patient_calibration,
             status="ACTIVE",
             protocol_name=protocol_title,
             current_step_id=protocol_steps[0].step_id,

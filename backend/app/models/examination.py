@@ -18,6 +18,9 @@ class Examination(Base):
     patient_age = Column(Integer, nullable=True, default=45)
     patient_gender = Column(String(32), nullable=True, default="Unspecified")
     
+    # Patient-specific 3D Mesh calibration (from photo)
+    patient_calibration = Column(JSON, nullable=True)
+    
     # Anatomical region selected on 3D wireframe mesh
     selected_region = Column(String(64), nullable=False, default="RIGHT_KNEE")
     specific_zone = Column(String(64), nullable=True) # e.g. "ANTERIOR_PATELLA", "MEDIAL_JOINT_LINE"

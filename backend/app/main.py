@@ -34,6 +34,7 @@ app.add_middleware(
 
 # Mount static folder for annotated video replay and patient assets
 app.mount("/static", StaticFiles(directory=str(settings.STATIC_DIR)), name="static")
+app.mount("/uploads", StaticFiles(directory=str(settings.UPLOAD_DIR)), name="uploads")
 
 # Mount API routes
 app.include_router(exam_router, prefix=settings.API_V1_PREFIX)

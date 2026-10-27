@@ -1,6 +1,30 @@
-import type { Examination, StructuredClinicalReport } from '../types/examination';
+import type { Examination, StructuredClinicalReport, PatientCalibration } from '../types/examination';
 
 const API_BASE = 'http://localhost:8000/api/v1';
+
+export async function calibratePatientMesh(
+  photoFile?: File | null,
+  isDemo?: boolean
+): Promise<PatientCalibration> {
+  const formData = new FormData();
+  if (photoFile) {
+    formData.append('photo', photoFile);
+  }
+  if (isDemo) {
+    formData.append('is_demo', 'true');
+  }
+
+  const response = await fetch(`${API_BASE}/examinations/calibrate-patient-mesh`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Patient photo calibration failed' }));
+    throw new Error(err.detail || 'Photo calibration failed');
+  }
+  return response.json();
+}
 
 export async function createExamination(data: {
   patient_id?: string;
@@ -10,6 +34,7 @@ export async function createExamination(data: {
   selected_region: string;
   affected_side: string;
   patient_orientation?: string;
+  patient_calibration?: PatientCalibration | null;
 }): Promise<Examination> {
   const response = await fetch(`${API_BASE}/examinations`, {
     method: 'POST',

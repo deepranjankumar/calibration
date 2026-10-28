@@ -2,10 +2,10 @@ import React, { useRef, useState, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import type { Landmark3D, BiomechanicalMeasurement, ClinicalFinding, BodyProportions } from '../../types/examination';
+import type { BiomechanicalMeasurement, ClinicalFinding, BodyProportions } from '../../types/examination';
 
 interface PatientSpecificMeshProps {
-  landmarks?: Landmark3D[] | null;
+  meshUrl?: string | null;
   keyJoints?: Record<string, [number, number, number]> | null;
   bodyProportions?: BodyProportions | null;
   selectedRegion: string;
@@ -17,24 +17,28 @@ interface PatientSpecificMeshProps {
 }
 
 export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
-  landmarks,
+  meshUrl,
   keyJoints,
-  bodyProportions,
+  bodyProportions: _bodyProportions,
   selectedRegion,
   onSelectRegion,
   affectedSide: _affectedSide,
   measurements = [],
   findings = [],
-  isExamActive,
+  isExamActive: _isExamActive,
 }) => {
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const pulseRef = useRef<THREE.Group>(null);
 
-  // Load canonical SMPL anatomical athletic mesh
-  const { scene } = useGLTF('/models/smpl_male_apose.glb');
+  // Active GLTF model: use patient's customized posed mesh if calibrated, otherwise fallback to canonical SMPL
+  const activeModelUrl = meshUrl && meshUrl.trim().length > 0
+    ? (meshUrl.startsWith('http') ? meshUrl : `http://localhost:8000${meshUrl}`)
+    : '/models/smpl_male_apose.glb';
 
-  // Extract BufferGeometry from GLTF
-  const baseGeometry = useMemo(() => {
+  const { scene } = useGLTF(activeModelUrl);
+
+  // Extract BufferGeometry from the active GLTF
+  const bodyGeometry = useMemo(() => {
     let geo: THREE.BufferGeometry | null = null;
     scene.traverse((child) => {
       if ((child as THREE.Mesh).isMesh && !geo) {
@@ -43,15 +47,6 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
     });
     return geo;
   }, [scene]);
-
-  // Compute scale factors from calibrated patient biometrics
-  const [scaleX, scaleY, scaleZ] = useMemo(() => {
-    if (!bodyProportions) return [1.0, 1.0, 1.0];
-    const sX = bodyProportions.shoulder_width_m ? Math.max(0.75, Math.min(1.35, bodyProportions.shoulder_width_m / 0.40)) : 1.0;
-    const sY = bodyProportions.estimated_height_cm ? Math.max(0.75, Math.min(1.35, bodyProportions.estimated_height_cm / 189.0)) : 1.0;
-    const sZ = 1.0;
-    return [sX, sY, sZ];
-  }, [bodyProportions]);
 
   // Pulse animation for selected zone indicator
   useFrame(({ clock }) => {
@@ -71,101 +66,87 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
     return '#00e5ff'; // Radiant Cyan
   }, [findings]);
 
-  // Scaled anatomical zones fitted to the calibrated patient's body dimensions
-  const patientZones = useMemo(() => {
-    const baseZones = [
-      { id: 'RIGHT_KNEE', name: "Patient's Right Knee", side: 'RIGHT' as const, basePos: [-0.11, -0.345, 0.04] },
-      { id: 'LEFT_KNEE', name: "Patient's Left Knee", side: 'LEFT' as const, basePos: [0.105, -0.345, 0.04] },
-      { id: 'RIGHT_HIP', name: "Patient's Right Hip", side: 'RIGHT' as const, basePos: [-0.095, 0.085, 0.02] },
-      { id: 'LEFT_HIP', name: "Patient's Left Hip", side: 'LEFT' as const, basePos: [0.095, 0.085, 0.02] },
-      { id: 'LUMBAR_SPINE', name: "Patient's Lumbar Spine", side: 'BILATERAL' as const, basePos: [0.0, 0.29, -0.02] },
-      { id: 'CERVICAL_SPINE', name: "Patient's Cervical Spine", side: 'BILATERAL' as const, basePos: [0.0, 0.69, 0.02] },
-      { id: 'RIGHT_SHOULDER', name: "Patient's Right Shoulder", side: 'RIGHT' as const, basePos: [-0.19, 0.64, 0.01] },
-      { id: 'LEFT_SHOULDER', name: "Patient's Left Shoulder", side: 'LEFT' as const, basePos: [0.19, 0.64, 0.01] },
-      { id: 'RIGHT_ELBOW', name: "Patient's Right Elbow", side: 'RIGHT' as const, basePos: [-0.29, 0.38, -0.01] },
-      { id: 'LEFT_ELBOW', name: "Patient's Left Elbow", side: 'LEFT' as const, basePos: [0.29, 0.38, -0.01] },
-      { id: 'RIGHT_WRIST', name: "Patient's Right Wrist/Hand", side: 'RIGHT' as const, basePos: [-0.40, 0.11, -0.02] },
-      { id: 'LEFT_WRIST', name: "Patient's Left Wrist/Hand", side: 'LEFT' as const, basePos: [0.40, 0.11, -0.02] },
-      { id: 'RIGHT_ANKLE', name: "Patient's Right Ankle", side: 'RIGHT' as const, basePos: [-0.095, -0.81, 0.01] },
-      { id: 'LEFT_ANKLE', name: "Patient's Left Ankle", side: 'LEFT' as const, basePos: [0.095, -0.81, 0.01] },
-    ];
+  // Base fallback anatomical coordinates for canonical SMPL A-pose
+  const baseZones = useMemo(() => [
+    { id: 'RIGHT_KNEE', name: "Patient's Right Knee", side: 'RIGHT' as const, defaultPos: [-0.11, -0.345, 0.04] },
+    { id: 'LEFT_KNEE', name: "Patient's Left Knee", side: 'LEFT' as const, defaultPos: [0.105, -0.345, 0.04] },
+    { id: 'RIGHT_HIP', name: "Patient's Right Hip", side: 'RIGHT' as const, defaultPos: [-0.095, 0.085, 0.02] },
+    { id: 'LEFT_HIP', name: "Patient's Left Hip", side: 'LEFT' as const, defaultPos: [0.095, 0.085, 0.02] },
+    { id: 'LUMBAR_SPINE', name: "Patient's Lumbar Spine", side: 'BILATERAL' as const, defaultPos: [0.0, 0.29, -0.02] },
+    { id: 'CERVICAL_SPINE', name: "Patient's Cervical Spine", side: 'BILATERAL' as const, defaultPos: [0.0, 0.69, 0.02] },
+    { id: 'RIGHT_SHOULDER', name: "Patient's Right Shoulder", side: 'RIGHT' as const, defaultPos: [-0.19, 0.64, 0.01] },
+    { id: 'LEFT_SHOULDER', name: "Patient's Left Shoulder", side: 'LEFT' as const, defaultPos: [0.19, 0.64, 0.01] },
+    { id: 'RIGHT_ELBOW', name: "Patient's Right Elbow", side: 'RIGHT' as const, defaultPos: [-0.29, 0.38, -0.01] },
+    { id: 'LEFT_ELBOW', name: "Patient's Left Elbow", side: 'LEFT' as const, defaultPos: [0.29, 0.38, -0.01] },
+    { id: 'RIGHT_WRIST', name: "Patient's Right Wrist/Hand", side: 'RIGHT' as const, defaultPos: [-0.40, 0.11, -0.02] },
+    { id: 'LEFT_WRIST', name: "Patient's Left Wrist/Hand", side: 'LEFT' as const, defaultPos: [0.40, 0.11, -0.02] },
+    { id: 'RIGHT_ANKLE', name: "Patient's Right Ankle", side: 'RIGHT' as const, defaultPos: [-0.095, -0.81, 0.01] },
+    { id: 'LEFT_ANKLE', name: "Patient's Left Ankle", side: 'LEFT' as const, defaultPos: [0.095, -0.81, 0.01] },
+  ], []);
 
+  // Anatomical zones accurately positioned at the patient's posed joints
+  const patientZones = useMemo(() => {
     return baseZones.map((z) => {
-      // If direct 3D key joint coordinates were calculated by CV intake, use them; otherwise scale base SMPL joint
-      let pos: [number, number, number] = [
-        z.basePos[0] * scaleX,
-        z.basePos[1] * scaleY,
-        z.basePos[2] * scaleZ,
-      ];
-      if (keyJoints && keyJoints[z.id.toLowerCase()]) {
-        pos = keyJoints[z.id.toLowerCase()];
+      let pos: [number, number, number] = z.defaultPos as [number, number, number];
+      if (keyJoints) {
+        if (keyJoints[z.id]) {
+          pos = keyJoints[z.id];
+        } else if (keyJoints[z.id.toUpperCase()]) {
+          pos = keyJoints[z.id.toUpperCase()];
+        }
       }
       return { ...z, pos };
     });
-  }, [scaleX, scaleY, scaleZ, keyJoints]);
+  }, [baseZones, keyJoints]);
 
   // Latest kinematic measurement
   const latestMeasurement = measurements.length > 0 ? measurements[measurements.length - 1] : null;
 
   // Active joint for kinematic readout
   const activeZone = useMemo(() => {
-    return patientZones.find((z) => z.id === selectedRegion) || patientZones[0];
+    if (!selectedRegion) return null;
+    return patientZones.find((z) => z.id === selectedRegion) || null;
   }, [patientZones, selectedRegion]);
 
   return (
     <group position={[0, -0.05, 0]}>
-      {/* --- PATIENT SPECIFIC DEFORMED ANATOMICAL WIREFRAME MESH --- */}
-      {baseGeometry && (
-        <group scale={[scaleX, scaleY, scaleZ]}>
-          {/* Layer 1: Dark volumetric silhouette core */}
-          <mesh geometry={baseGeometry}>
+      {/* --- PATIENT SPECIFIC POSED ANATOMICAL WIREFRAME MESH (IMAGE 1 AESTHETIC) --- */}
+      {bodyGeometry && (
+        <group>
+          {/* Layer 1: Dark translucent silhouette core (depthWrite=false prevents any z-buffer holes or black clipping) */}
+          <mesh geometry={bodyGeometry}>
             <meshStandardMaterial
               color="#021422"
-              roughness={0.45}
-              metalness={0.2}
+              roughness={0.5}
+              metalness={0.1}
               transparent
-              opacity={0.80}
+              opacity={0.65}
+              depthWrite={false}
             />
           </mesh>
 
-          {/* Layer 2: Radiant cyan wireframe topology */}
-          <mesh geometry={baseGeometry}>
+          {/* Layer 2: Radiant cyan wireframe topology (Getty Images aesthetic) */}
+          <mesh geometry={bodyGeometry}>
             <meshStandardMaterial
               color="#00e5ff"
               emissive="#00b4d8"
-              emissiveIntensity={0.35}
+              emissiveIntensity={0.4}
               wireframe
               transparent
-              opacity={0.82}
+              opacity={0.85}
             />
           </mesh>
         </group>
       )}
 
-      {/* --- REAL-TIME 3D LANDMARK SKELETON (IF STREAMING FROM REPLAY/CV) --- */}
-      {landmarks && landmarks.length > 0 && (
-        <group>
-          {landmarks.map((lm) => (
-            <mesh key={lm.id} position={[lm.x, lm.y, lm.z]}>
-              <sphereGeometry args={[0.018, 12, 12]} />
-              <meshStandardMaterial
-                color="#38bdf8"
-                emissive="#0284c7"
-                emissiveIntensity={0.8}
-              />
-            </mesh>
-          ))}
-        </group>
-      )}
-
-      {/* --- INTERACTIVE PATIENT JOINT ZONES --- */}
+      {/* --- INTERACTIVE PATIENT JOINT ZONES (CLEAN: NO PERMANENT DOTS OR CLUTTER) --- */}
       {patientZones.map((zone) => {
         const isSelected = selectedRegion === zone.id;
         const isHovered = hoveredZone === zone.id;
 
         return (
           <group key={zone.id} position={zone.pos}>
-            {/* Clickable collider */}
+            {/* Clickable invisible raycast collider: depthWrite=false ensures it NEVER punches holes in the mesh */}
             <mesh
               onClick={(e) => {
                 e.stopPropagation();
@@ -183,54 +164,54 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
                 document.body.style.cursor = 'default';
               }}
             >
-              <sphereGeometry args={[0.11, 16, 16]} />
+              <sphereGeometry args={[0.09, 16, 16]} />
               <meshBasicMaterial
-                color={isSelected ? '#00e5ff' : isHovered ? '#67e8f9' : '#0284c7'}
                 transparent
-                opacity={isSelected ? 0.35 : isHovered ? 0.25 : 0.001}
-                wireframe={isSelected || isHovered}
+                opacity={0}
+                depthWrite={false}
               />
             </mesh>
 
-            {/* Visual Joint Sphere Node */}
-            <mesh>
-              <sphereGeometry args={[isSelected ? 0.035 : isHovered ? 0.028 : 0.018, 16, 16]} />
-              <meshStandardMaterial
-                color={isSelected ? jointColor : isHovered ? '#67e8f9' : '#00e5ff'}
-                emissive={isSelected ? jointColor : isHovered ? '#00e5ff' : '#0284c7'}
-                emissiveIntensity={isSelected ? 0.9 : isHovered ? 0.7 : 0.3}
-              />
-            </mesh>
-
-            {/* Glowing target ring when idle */}
-            {!isExamActive && (
+            {/* Glowing cyan hover indicator ring (ONLY rendered when hovering) */}
+            {isHovered && !isSelected && (
               <mesh position={[0, 0, 0.02]}>
-                <ringGeometry args={[0.04, 0.065, 24]} />
+                <ringGeometry args={[0.04, 0.065, 32]} />
                 <meshBasicMaterial
-                  color={isHovered ? '#22d3ee' : '#00e5ff'}
-                  transparent
-                  opacity={isHovered ? 0.95 : 0.45}
+                  color="#00e5ff"
                   side={THREE.DoubleSide}
+                  transparent
+                  opacity={0.9}
+                  depthWrite={false}
                 />
               </mesh>
             )}
 
-            {/* Concentric pulsing ring on selected painful zone */}
+            {/* Glowing pulse ring ONLY when user explicitly picks this point */}
             {isSelected && (
               <group ref={pulseRef}>
                 <mesh position={[0, 0, 0.03]}>
-                  <ringGeometry args={[0.08, 0.12, 32]} />
+                  <ringGeometry args={[0.05, 0.085, 32]} />
                   <meshBasicMaterial
                     color={jointColor}
                     side={THREE.DoubleSide}
                     transparent
-                    opacity={0.85}
+                    opacity={0.9}
+                    depthWrite={false}
+                  />
+                </mesh>
+                <mesh>
+                  <sphereGeometry args={[0.02, 16, 16]} />
+                  <meshStandardMaterial
+                    color={jointColor}
+                    emissive={jointColor}
+                    emissiveIntensity={0.9}
+                    depthWrite={false}
                   />
                 </mesh>
               </group>
             )}
 
-            {/* Hover Tooltip */}
+            {/* Interactive hover tooltip */}
             {isHovered && (
               <Html distanceFactor={3.8} position={[0, 0.16, 0]} center style={{ pointerEvents: 'none' }}>
                 <div
@@ -310,10 +291,10 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
         .map((finding) => {
           const anchor = finding.mesh_anchor!;
           return (
-            <group key={finding.id} position={[anchor.x * scaleX, anchor.y * scaleY, anchor.z * scaleZ]}>
+            <group key={finding.id} position={[anchor.x, anchor.y, anchor.z]}>
               <mesh>
-                <sphereGeometry args={[0.025, 16, 16]} />
-                <meshBasicMaterial color="#ef4444" />
+                <sphereGeometry args={[0.02, 16, 16]} />
+                <meshBasicMaterial color="#ef4444" depthWrite={false} />
               </mesh>
               <Html distanceFactor={3.8} position={[0, 0.08, 0]} center style={{ pointerEvents: 'none' }}>
                 <div className="bg-red-950/90 border border-red-500/50 text-red-200 text-[10px] px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">

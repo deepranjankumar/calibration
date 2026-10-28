@@ -25,6 +25,7 @@ import {
   ZoomOut,
   Maximize2,
   Crosshair,
+  Target,
 } from 'lucide-react';
 
 interface BodyMeshViewerProps {
@@ -81,16 +82,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
     return () => clearInterval(interval);
   }, [isPlayingMotion, motionFrames]);
 
-  // Active landmarks: from video replay frame if replaying, otherwise from patient calibration
-  const activeLandmarks = useMemo(() => {
-    if (motionFrames.length > 0 && motionFrames[currentFrameIdx]?.frame_landmarks_3d) {
-      return motionFrames[currentFrameIdx].frame_landmarks_3d!;
-    }
-    if (patientCalibration?.landmarks_3d) {
-      return patientCalibration.landmarks_3d;
-    }
-    return null;
-  }, [motionFrames, currentFrameIdx, patientCalibration]);
+
 
   const activeFrameData = motionFrames.length > 0 ? motionFrames[currentFrameIdx] : null;
 
@@ -123,6 +115,10 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
 
   const focusOnSelectedRegion = () => {
     if (!controlsRef.current) return;
+    if (!selectedRegion) {
+      setFullBodyView();
+      return;
+    }
     const isRight = affectedSide === 'RIGHT' || selectedRegion.includes('RIGHT');
     const xMult = isRight ? -1 : 1;
 
@@ -153,10 +149,30 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
       camPos = [0, 0.69, 1.1];
     }
 
+    // If patient-specific calibration is active, use the patient's exact 3D joint coordinate
+    if (patientCalibration?.key_joint_positions) {
+      const calibPos = patientCalibration.key_joint_positions[selectedRegion]
+        || patientCalibration.key_joint_positions[selectedRegion.toUpperCase()];
+      if (calibPos) {
+        targetJoint = calibPos;
+        camPos = [calibPos[0], calibPos[1], calibPos[2] + 1.1];
+      }
+    }
+
     setView(camPos[0], camPos[1], camPos[2], targetJoint);
   };
 
-  const regionDisplayName = selectedRegion.replace(/_/g, ' ');
+  // Automatically frame and zoom onto the detected or selected body part mesh
+  useEffect(() => {
+    if (selectedRegion) {
+      const timer = setTimeout(() => {
+        focusOnSelectedRegion();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedRegion, patientCalibration?.calibrated_mesh_url]);
+
+  const regionDisplayName = selectedRegion ? selectedRegion.replace(/_/g, ' ') : '';
 
   return (
     <div className="relative w-full h-full flex flex-col bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
@@ -166,18 +182,25 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
         <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/60 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md pointer-events-auto">
           <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
           <span className="text-xs font-semibold text-slate-200">
-            {regionDisplayName}
+            {selectedRegion ? regionDisplayName : 'Select Painful Location'}
           </span>
           <span className="text-[10px] text-cyan-400/90 font-mono bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/50">
-            {affectedSide} SIDE
+            {selectedRegion ? `${affectedSide} SIDE` : 'IDLE'}
           </span>
 
           {patientCalibration && (
             <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-700">
-              <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-600/50 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
-                <UserCheck className="w-3 h-3 text-emerald-400" />
-                PATIENT CALIBRATED ({patientCalibration.body_proportions.estimated_height_cm}cm)
-              </span>
+              {patientCalibration.detected_body_part ? (
+                <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/70 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1 shadow-sm">
+                  <Target className="w-3 h-3 text-cyan-400" />
+                  DETECTED: {patientCalibration.detected_body_part.display_name} ({patientCalibration.detected_body_part.posture})
+                </span>
+              ) : (
+                <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-600/50 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                  <UserCheck className="w-3 h-3 text-emerald-400" />
+                  PATIENT CALIBRATED ({patientCalibration.body_proportions.estimated_height_cm}cm)
+                </span>
+              )}
 
               {patientCalibration.annotated_image_url && (
                 <button
@@ -295,11 +318,11 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
 
           {/* If patient photo calibration is active, render PatientSpecificMesh */}
           <React.Suspense fallback={null}>
-            {patientCalibration || activeLandmarks ? (
+            {patientCalibration ? (
               <PatientSpecificMesh
-                landmarks={activeLandmarks}
-                keyJoints={patientCalibration?.key_joint_positions}
-                bodyProportions={patientCalibration?.body_proportions}
+                meshUrl={patientCalibration.calibrated_mesh_url}
+                keyJoints={patientCalibration.key_joint_positions}
+                bodyProportions={patientCalibration.body_proportions}
                 selectedRegion={selectedRegion}
                 onSelectRegion={onSelectRegion}
                 affectedSide={affectedSide}

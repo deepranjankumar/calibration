@@ -18,6 +18,7 @@ import {
   Camera,
   UserCheck,
   RefreshCw,
+  Target,
 } from 'lucide-react';
 
 interface AIWorkflowPanelProps {
@@ -143,6 +144,10 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
       if (onCalibratePatient) {
         onCalibratePatient(calibration);
       }
+      if (calibration.detected_body_part && onSelectRegion) {
+        const part = calibration.detected_body_part;
+        onSelectRegion(part.region_id, part.side === 'BILATERAL' ? 'RIGHT' : part.side);
+      }
     } catch (err: any) {
       setCalibrationError(err.message || 'Failed to calibrate patient mesh from photo.');
     } finally {
@@ -161,6 +166,10 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
       if (onCalibratePatient) {
         onCalibratePatient(calibration);
       }
+      if (calibration.detected_body_part && onSelectRegion) {
+        const part = calibration.detected_body_part;
+        onSelectRegion(part.region_id, part.side === 'BILATERAL' ? 'RIGHT' : part.side);
+      }
     } catch (err: any) {
       setCalibrationError(err.message || 'Failed to calibrate patient mesh from uploaded photo.');
     } finally {
@@ -176,6 +185,10 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
       const calibration = await calibratePatientMesh(null, true);
       if (onCalibratePatient) {
         onCalibratePatient(calibration);
+      }
+      if (calibration.detected_body_part && onSelectRegion) {
+        const part = calibration.detected_body_part;
+        onSelectRegion(part.region_id, part.side === 'BILATERAL' ? 'RIGHT' : part.side);
       }
     } catch (err: any) {
       setCalibrationError(err.message || 'Instant biometric calibration failed.');
@@ -431,6 +444,43 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
               ) : (
                 /* Patient Mesh Calibrated Status Card */
                 <div className="space-y-3">
+                  {/* Step 1: AI Detected Body Part Banner */}
+                  {patientCalibration.detected_body_part && (
+                    <div className="bg-gradient-to-r from-cyan-950/95 to-slate-900/95 border-2 border-cyan-400/90 rounded-xl p-3 shadow-xl flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-cyan-900/60 rounded-lg border border-cyan-500/40">
+                          <Target className="w-5 h-5 text-cyan-300 animate-pulse" />
+                        </div>
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wider font-mono text-cyan-400 font-bold flex items-center gap-1.5">
+                            <span>Step 1: AI Detected Body Part</span>
+                            <span className="text-[9px] bg-cyan-900 text-cyan-200 px-1.5 py-0.2 rounded border border-cyan-700">
+                              {(patientCalibration.detected_body_part.confidence * 100).toFixed(0)}% Conf
+                            </span>
+                          </div>
+                          <div className="text-xs font-bold text-white">
+                            🎯 {patientCalibration.detected_body_part.display_name}
+                          </div>
+                          <div className="text-[10px] text-cyan-300 font-mono">
+                            Posture: {patientCalibration.detected_body_part.posture} • Exact 3D mesh reconstructed & focused
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (patientCalibration.detected_body_part && onSelectRegion) {
+                            const p = patientCalibration.detected_body_part;
+                            onSelectRegion(p.region_id, p.side === 'BILATERAL' ? 'RIGHT' : p.side);
+                          }
+                        }}
+                        className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold rounded-lg transition-colors shadow flex items-center gap-1 cursor-pointer"
+                      >
+                        Start Exam
+                      </button>
+                    </div>
+                  )}
+
                   <div className="bg-emerald-950/70 border border-emerald-500/50 rounded-xl p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">

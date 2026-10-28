@@ -21,7 +21,7 @@ interface AnatomicalZone {
   radius: number;
 }
 
-// Exact 3D anatomical coordinates derived from the canonical SMPL athletic mesh
+// Canonical SMPL athletic mesh joint locations
 const ANATOMICAL_ZONES: AnatomicalZone[] = [
   { id: 'RIGHT_KNEE', name: 'Right Knee Joint', side: 'RIGHT', position: [-0.11, -0.345, 0.04], radius: 0.09 },
   { id: 'LEFT_KNEE', name: 'Left Knee Joint', side: 'LEFT', position: [0.105, -0.345, 0.04], radius: 0.09 },
@@ -45,7 +45,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
   affectedSide,
   measurements = [],
   findings = [],
-  isExamActive,
+  isExamActive: _isExamActive,
 }) => {
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const pulseRef = useRef<THREE.Group>(null);
@@ -90,6 +90,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
 
   // Dynamic 3D kinematic tracking vectors based on the symptomatic region
   const jointKinematics = useMemo(() => {
+    if (!selectedRegion) return null;
     const reg = selectedRegion.toUpperCase();
     if (reg.includes('SHOULDER')) {
       return {
@@ -139,15 +140,16 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
         label: 'Spine Kinematics',
         calloutPos: [0.35, 0.43, 0.15] as [number, number, number],
       };
+    } else if (reg.includes('KNEE')) {
+      return {
+        node1: [targetX * 0.095, 0.085, 0.02] as [number, number, number],
+        node2: [targetX * 0.11, -0.345, 0.04] as [number, number, number],
+        node3: [targetX * 0.095, -0.81, 0.01] as [number, number, number],
+        label: 'Knee Kinematics',
+        calloutPos: [targetX * 0.11 + (isRight ? -0.32 : 0.32), -0.345, 0.15] as [number, number, number],
+      };
     }
-    // Default Knee Kinematics
-    return {
-      node1: [targetX * 0.095, 0.085, 0.02] as [number, number, number],
-      node2: [targetX * 0.11, -0.345, 0.04] as [number, number, number],
-      node3: [targetX * 0.095, -0.81, 0.01] as [number, number, number],
-      label: 'Knee Kinematics',
-      calloutPos: [targetX * 0.11 + (isRight ? -0.32 : 0.32), -0.345, 0.15] as [number, number, number],
-    };
+    return null;
   }, [selectedRegion, isRight, targetX]);
 
   return (
@@ -155,26 +157,27 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
       {/* --- DENSE ANATOMICAL HUMAN MESH (IMAGE 1 WIREFRAME AESTHETIC) --- */}
       {bodyGeometry && (
         <group>
-          {/* Layer 1: Dark volumetric silhouette core (prevents visual clutter by occluding back-wires) */}
+          {/* Layer 1: Dark translucent core (depthWrite=false to prevent any z-fighting or black masking) */}
           <mesh geometry={bodyGeometry}>
             <meshStandardMaterial
               color="#021422"
-              roughness={0.45}
-              metalness={0.2}
+              roughness={0.5}
+              metalness={0.1}
               transparent
-              opacity={0.78}
+              opacity={0.65}
+              depthWrite={false}
             />
           </mesh>
 
-          {/* Layer 2: Radiant cyan wireframe topology (Getty aesthetic) */}
+          {/* Layer 2: Radiant glowing cyan wireframe topology (Getty aesthetic) */}
           <mesh geometry={bodyGeometry}>
             <meshStandardMaterial
               color="#00e5ff"
               emissive="#00b4d8"
-              emissiveIntensity={0.35}
+              emissiveIntensity={0.4}
               wireframe
               transparent
-              opacity={0.82}
+              opacity={0.85}
             />
           </mesh>
         </group>
@@ -187,7 +190,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
 
         return (
           <group key={zone.id} position={zone.position}>
-            {/* Clickable transparent collider sphere */}
+            {/* Clickable raycast collider: 100% invisible with depthWrite=false so it NEVER blocks or cuts wireframe */}
             <mesh
               onClick={(e) => {
                 e.stopPropagation();
@@ -205,48 +208,48 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
                 document.body.style.cursor = 'default';
               }}
             >
-              <sphereGeometry args={[zone.radius * 1.3, 16, 16]} />
+              <sphereGeometry args={[zone.radius * 1.2, 16, 16]} />
               <meshBasicMaterial
-                color={isSelected ? '#00e5ff' : isHovered ? '#67e8f9' : '#0284c7'}
                 transparent
-                opacity={isSelected ? 0.35 : isHovered ? 0.25 : 0.001}
-                wireframe={isSelected || isHovered}
+                opacity={0}
+                depthWrite={false}
               />
             </mesh>
 
-            {/* Glowing target node at the joint */}
-            <mesh>
-              <sphereGeometry args={[isSelected ? 0.035 : isHovered ? 0.028 : 0.018, 16, 16]} />
-              <meshStandardMaterial
-                color={isSelected ? jointColor : isHovered ? '#67e8f9' : '#00e5ff'}
-                emissive={isSelected ? jointColor : isHovered ? '#00e5ff' : '#0284c7'}
-                emissiveIntensity={isSelected ? 0.9 : isHovered ? 0.7 : 0.3}
-              />
-            </mesh>
-
-            {/* Glowing target ring / pulse on each zone when idle */}
-            {!isExamActive && (
+            {/* Glowing cyan hover indicator ring (ONLY rendered when hovering) */}
+            {isHovered && !isSelected && (
               <mesh position={[0, 0, 0.02]}>
-                <ringGeometry args={[zone.radius * 0.45, zone.radius * 0.65, 24]} />
+                <ringGeometry args={[0.04, 0.065, 32]} />
                 <meshBasicMaterial
-                  color={isHovered ? '#22d3ee' : '#00e5ff'}
-                  transparent
-                  opacity={isHovered ? 0.95 : 0.45}
+                  color="#00e5ff"
                   side={THREE.DoubleSide}
+                  transparent
+                  opacity={0.9}
+                  depthWrite={false}
                 />
               </mesh>
             )}
 
-            {/* Concentric pulsing ring on selected painful zone */}
+            {/* Glowing pulse ring ONLY when user explicitly picks this point */}
             {isSelected && (
               <group ref={pulseRef}>
                 <mesh position={[0, 0, 0.03]}>
-                  <ringGeometry args={[zone.radius * 0.9, zone.radius * 1.25, 32]} />
+                  <ringGeometry args={[0.05, 0.085, 32]} />
                   <meshBasicMaterial
                     color={jointColor}
                     side={THREE.DoubleSide}
                     transparent
-                    opacity={0.85}
+                    opacity={0.9}
+                    depthWrite={false}
+                  />
+                </mesh>
+                <mesh>
+                  <sphereGeometry args={[0.02, 16, 16]} />
+                  <meshStandardMaterial
+                    color={jointColor}
+                    emissive={jointColor}
+                    emissiveIntensity={0.9}
+                    depthWrite={false}
                   />
                 </mesh>
               </group>
@@ -278,21 +281,21 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
         );
       })}
 
-      {/* --- DYNAMIC BIOMECHANICAL KINEMATIC OVERLAY --- */}
-      {latestMeasurement && (
+      {/* --- DYNAMIC BIOMECHANICAL KINEMATIC OVERLAY (WHEN MEASUREMENT ACTIVE) --- */}
+      {latestMeasurement && jointKinematics && (
         <group>
           {/* 1. Tracked 3D Joint Nodes */}
           <mesh position={jointKinematics.node1}>
-            <sphereGeometry args={[0.035, 16, 16]} />
-            <meshStandardMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.6} />
+            <sphereGeometry args={[0.025, 16, 16]} />
+            <meshStandardMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.6} depthWrite={false} />
           </mesh>
           <mesh position={jointKinematics.node2}>
-            <sphereGeometry args={[0.045, 16, 16]} />
-            <meshStandardMaterial color={jointColor} emissive={jointColor} emissiveIntensity={0.8} />
+            <sphereGeometry args={[0.035, 16, 16]} />
+            <meshStandardMaterial color={jointColor} emissive={jointColor} emissiveIntensity={0.8} depthWrite={false} />
           </mesh>
           <mesh position={jointKinematics.node3}>
-            <sphereGeometry args={[0.035, 16, 16]} />
-            <meshStandardMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.6} />
+            <sphereGeometry args={[0.025, 16, 16]} />
+            <meshStandardMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.6} depthWrite={false} />
           </mesh>
 
           {/* 2. Kinematic Vector Links */}
@@ -307,7 +310,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
                 geo.setFromPoints(points);
               }}
             />
-            <lineBasicMaterial attach="material" color="#22d3ee" linewidth={3} />
+            <lineBasicMaterial attach="material" color="#22d3ee" linewidth={2} />
           </line>
           <line>
             <bufferGeometry
@@ -320,7 +323,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
                 geo.setFromPoints(points);
               }}
             />
-            <lineBasicMaterial attach="material" color={jointColor} linewidth={3} />
+            <lineBasicMaterial attach="material" color={jointColor} linewidth={2} />
           </line>
 
           {/* 3. Floating 3D Angle & ROM Readout Callout */}
@@ -384,8 +387,8 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
           return (
             <group key={finding.id} position={[posX, posY, posZ]}>
               <mesh>
-                <sphereGeometry args={[0.025, 16, 16]} />
-                <meshBasicMaterial color="#ef4444" />
+                <sphereGeometry args={[0.02, 16, 16]} />
+                <meshBasicMaterial color="#ef4444" depthWrite={false} />
               </mesh>
               <Html distanceFactor={3.8} position={[0, 0.08, 0]} center style={{ pointerEvents: 'none' }}>
                 <div className="bg-red-950/90 border border-red-500/50 text-red-200 text-[10px] px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">
@@ -399,5 +402,4 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
   );
 };
 
-// Preload the SMPL anatomical asset
 useGLTF.preload('/models/smpl_male_apose.glb');

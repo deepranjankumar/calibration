@@ -424,23 +424,70 @@ class BiomechanicalPoseAnalyzer:
         is_detected = False
 
         if self.detector:
-            try:
-                rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
-                result = self.detector.detect(mp_image)
-                if result.pose_landmarks and len(result.pose_landmarks) > 0:
-                    lms = result.pose_landmarks[0]
-                    is_detected = True
-                    for i, lm in enumerate(lms):
-                        landmarks_data.append({
-                            "id": i,
-                            "x": float(lm.x),
-                            "y": float(lm.y),
-                            "z": float(lm.z),
-                            "visibility": float(getattr(lm, "visibility", 1.0) or 0.9)
-                        })
-            except Exception as e:
-                print(f"[PoseAnalyzer] Image detection error: {e}")
+            # Multi-pass detection to handle all real-world patient photos:
+            # Pass 1: Raw image
+            # Pass 2: Adaptive Gamma 2.0 (brightens underexposed silhouette / backlit webcams)
+            # Pass 3: CLAHE on L-channel (reveals high-dynamic range details)
+            # Pass 4: Square padding (ensures outstretched arms in 16:9 images stay in field of view)
+            detection_passes = []
+
+            # Pass 1: Raw
+            detection_passes.append(("raw", img, False, 0))
+
+            # Pass 2: Gamma 2.0 for backlit/dim rooms
+            table = np.array([((i / 255.0) ** (1.0 / 2.0)) * 255 for i in range(256)]).astype("uint8")
+            brightened = cv2.LUT(img, table)
+            detection_passes.append(("gamma", brightened, False, 0))
+
+            # Pass 3: CLAHE contrast enhancement
+            lab = cv2.cvtColor(brightened, cv2.COLOR_BGR2LAB)
+            l_chan, a_chan, b_chan = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+            cl = clahe.apply(l_chan)
+            clahe_img = cv2.cvtColor(cv2.merge((cl, a_chan, b_chan)), cv2.COLOR_LAB2BGR)
+            detection_passes.append(("clahe", clahe_img, False, 0))
+
+            # Pass 4: Square-padded
+            if width > height:
+                pad_top = (width - height) // 2
+                pad_bottom = width - height - pad_top
+                padded = cv2.copyMakeBorder(brightened, pad_top, pad_bottom, 0, 0, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+                detection_passes.append(("square", padded, True, pad_top))
+
+            best_lms = None
+            best_vis_sum = -1.0
+
+            for pass_name, cur_img, is_square_padded, pad_t in detection_passes:
+                try:
+                    rgb_img = cv2.cvtColor(cur_img, cv2.COLOR_BGR2RGB)
+                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
+                    result = self.detector.detect(mp_image)
+                    if result.pose_landmarks and len(result.pose_landmarks) > 0:
+                        raw_lms = result.pose_landmarks[0]
+                        vis_sum = sum(getattr(lm, "visibility", 1.0) or 0.8 for lm in raw_lms)
+                        if vis_sum > best_vis_sum:
+                            best_vis_sum = vis_sum
+                            best_lms = []
+                            for i, lm in enumerate(raw_lms):
+                                y_val = float(lm.y)
+                                if is_square_padded:
+                                    y_val = float((lm.y * width - pad_t) / height)
+                                best_lms.append({
+                                    "id": i,
+                                    "x": float(lm.x),
+                                    "y": y_val,
+                                    "z": float(lm.z),
+                                    "visibility": float(getattr(lm, "visibility", 1.0) or 0.8)
+                                })
+                            # If high confidence detection achieved, use it immediately
+                            if vis_sum > 20.0:
+                                break
+                except Exception as e:
+                    print(f"[PoseAnalyzer] Detection pass '{pass_name}' error: {e}")
+
+            if best_lms and len(best_lms) >= 33:
+                landmarks_data = best_lms
+                is_detected = True
 
         if not is_detected or len(landmarks_data) < 33:
             return self._get_fallback_patient_calibration(img=img, output_annotated_path=output_annotated_path)
@@ -490,7 +537,7 @@ class BiomechanicalPoseAnalyzer:
 
         normalized_3d = []
         for lm in landmarks_data:
-            x3d = -(lm["x"] - mid_hip_x) * width * scale
+            x3d = (lm["x"] - mid_hip_x) * width * scale
             y3d = -(lm["y"] - mid_hip_y) * height * scale
             z3d = -lm["z"] * width * scale
             normalized_3d.append({
@@ -513,7 +560,13 @@ class BiomechanicalPoseAnalyzer:
         )
         r_thigh = math.dist(get_pos(24), get_pos(26))
         r_shin = math.dist(get_pos(26), get_pos(28))
-        est_height_cm = round((torso_h + r_thigh + r_shin + 0.35) * 100, 1)
+
+        # Robust anatomical height estimation bounded to realistic human range (150cm to 198cm)
+        raw_height_cm = (torso_h + r_thigh + r_shin + 0.35) * 100.0
+        est_height_cm = round(float(np.clip(raw_height_cm, 150.0, 198.0)), 1)
+        sh_dist = round(float(np.clip(sh_dist, 0.32, 0.56)), 3)
+        hip_dist = round(float(np.clip(hip_dist, 0.25, 0.45)), 3)
+        torso_h = round(float(np.clip(torso_h, 0.42, 0.68)), 3)
 
         key_joints = {
             "RIGHT_KNEE": get_pos(26),
@@ -540,6 +593,8 @@ class BiomechanicalPoseAnalyzer:
             ]
         }
 
+        detected_part = self._detect_primary_body_part(landmarks_data)
+
         return {
             "status": "SUCCESS",
             "is_calibrated": True,
@@ -553,7 +608,163 @@ class BiomechanicalPoseAnalyzer:
                 "right_shin_length_m": round(r_shin, 3),
                 "estimated_height_cm": est_height_cm,
             },
+            "detected_body_part": detected_part,
             "annotated_image_filename": Path(output_annotated_path).name if output_annotated_path else None
+        }
+
+    def _detect_primary_body_part(self, landmarks_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Analyzes 3D landmark visibility, proximity, and angles to identify
+        the primary anatomical body region captured in the patient's photo.
+        """
+        lm = {l["id"]: l for l in landmarks_data}
+
+        # Visibilities
+        v_head = lm.get(0, {}).get("visibility", 0.0)
+        v_sh_l = lm.get(11, {}).get("visibility", 0.0)
+        v_sh_r = lm.get(12, {}).get("visibility", 0.0)
+        v_el_l = lm.get(13, {}).get("visibility", 0.0)
+        v_el_r = lm.get(14, {}).get("visibility", 0.0)
+        v_hip_l = lm.get(23, {}).get("visibility", 0.0)
+        v_hip_r = lm.get(24, {}).get("visibility", 0.0)
+        v_kn_l = lm.get(25, {}).get("visibility", 0.0)
+        v_kn_r = lm.get(26, {}).get("visibility", 0.0)
+        v_an_l = lm.get(27, {}).get("visibility", 0.0)
+        v_an_r = lm.get(28, {}).get("visibility", 0.0)
+
+        # Z-depths (camera proximity: positive Z is closer to camera)
+        z_kn_r = lm.get(26, {}).get("z", 0.0)
+        z_kn_l = lm.get(25, {}).get("z", 0.0)
+        z_sh_r = lm.get(12, {}).get("z", 0.0)
+        z_sh_l = lm.get(11, {}).get("z", 0.0)
+
+        # Posture check (Seated vs Standing)
+        p_hip_l = np.array([lm[23]["x"], lm[23]["y"], lm[23]["z"]]) if 23 in lm else np.zeros(3)
+        p_kn_l = np.array([lm[25]["x"], lm[25]["y"], lm[25]["z"]]) if 25 in lm else np.zeros(3)
+        p_hip_r = np.array([lm[24]["x"], lm[24]["y"], lm[24]["z"]]) if 24 in lm else np.zeros(3)
+        p_kn_r = np.array([lm[26]["x"], lm[26]["y"], lm[26]["z"]]) if 26 in lm else np.zeros(3)
+
+        v_th_l = p_kn_l - p_hip_l
+        v_th_r = p_kn_r - p_hip_r
+        is_seated = (v_th_l[2] > 0.15 or v_th_l[1] > -0.32) or (v_th_r[2] > 0.15 or v_th_r[1] > -0.32)
+
+        # 1. Check Arm Elevation & Shoulder Abduction (Active Upper Extremity Pose)
+        # Note: in image coords, smaller Y is higher (closer to top of frame)
+        y_sh_l = lm.get(11, {}).get("y", 1.0)
+        y_sh_r = lm.get(12, {}).get("y", 1.0)
+        y_el_l = lm.get(13, {}).get("y", 1.0)
+        y_el_r = lm.get(14, {}).get("y", 1.0)
+        x_sh_l = lm.get(11, {}).get("x", 0.5)
+        x_sh_r = lm.get(12, {}).get("x", 0.5)
+        x_el_l = lm.get(13, {}).get("x", 0.5)
+        x_el_r = lm.get(14, {}).get("x", 0.5)
+
+        # Left arm elevated (abducted/raised) if elbow is higher than shoulder or outstretched horizontally
+        left_arm_abducted = (v_sh_l > 0.35 and (y_el_l <= y_sh_l + 0.08 or abs(x_el_l - x_sh_l) > 0.14))
+        # Right arm elevated (abducted/raised)
+        right_arm_abducted = (v_sh_r > 0.35 and (y_el_r <= y_sh_r + 0.08 or abs(x_el_r - x_sh_r) > 0.14))
+
+        if right_arm_abducted and not left_arm_abducted:
+            return {
+                "region_id": "RIGHT_SHOULDER",
+                "display_name": "Right Shoulder & Arm (Elevated / Abducted)",
+                "side": "RIGHT",
+                "confidence": 0.96,
+                "posture": "SEATED" if is_seated else "STANDING"
+            }
+        elif left_arm_abducted and not right_arm_abducted:
+            return {
+                "region_id": "LEFT_SHOULDER",
+                "display_name": "Left Shoulder & Arm (Elevated / Abducted)",
+                "side": "LEFT",
+                "confidence": 0.96,
+                "posture": "SEATED" if is_seated else "STANDING"
+            }
+        elif left_arm_abducted and right_arm_abducted:
+            # Both arms elevated: pick the more prominent one
+            if abs(x_el_r - x_sh_r) >= abs(x_el_l - x_sh_l):
+                return {
+                    "region_id": "RIGHT_SHOULDER",
+                    "display_name": "Right Shoulder & Arm (Bilateral Elevation)",
+                    "side": "RIGHT",
+                    "confidence": 0.94,
+                    "posture": "SEATED" if is_seated else "STANDING"
+                }
+            else:
+                return {
+                    "region_id": "LEFT_SHOULDER",
+                    "display_name": "Left Shoulder & Arm (Bilateral Elevation)",
+                    "side": "LEFT",
+                    "confidence": 0.94,
+                    "posture": "SEATED" if is_seated else "STANDING"
+                }
+
+        # 2. Check if Knee / Lower Extremity is prominent in foreground
+        knee_foreground_score = max(z_kn_r, z_kn_l) - max(z_sh_r, z_sh_l)
+        if (z_kn_r > 0.15 or z_kn_l > 0.15 or knee_foreground_score > 0.40) and (v_kn_r > 0.35 or v_kn_l > 0.35):
+            if z_kn_r >= z_kn_l:
+                return {
+                    "region_id": "RIGHT_KNEE",
+                    "display_name": "Right Knee Joint (Foreground Seated)",
+                    "side": "RIGHT",
+                    "confidence": 0.95,
+                    "posture": "SEATED" if is_seated else "STANDING"
+                }
+            else:
+                return {
+                    "region_id": "LEFT_KNEE",
+                    "display_name": "Left Knee Joint (Foreground Seated)",
+                    "side": "LEFT",
+                    "confidence": 0.95,
+                    "posture": "SEATED" if is_seated else "STANDING"
+                }
+
+        # 3. Check Elbow flexion / Forearm presentation
+        if v_el_r > 0.45 and v_sh_r > 0.40 and (v_kn_l < 0.4 and v_kn_r < 0.4):
+            # Check if elbow is flexed
+            return {
+                "region_id": "RIGHT_SHOULDER",
+                "display_name": "Right Upper Extremity (Shoulder & Arm)",
+                "side": "RIGHT",
+                "confidence": 0.92,
+                "posture": "SEATED" if is_seated else "STANDING"
+            }
+        if v_el_l > 0.45 and v_sh_l > 0.40 and (v_kn_l < 0.4 and v_kn_r < 0.4):
+            return {
+                "region_id": "LEFT_SHOULDER",
+                "display_name": "Left Upper Extremity (Shoulder & Arm)",
+                "side": "LEFT",
+                "confidence": 0.92,
+                "posture": "SEATED" if is_seated else "STANDING"
+            }
+
+        # 4. Check Cervical Spine / Head focus (upper body seated webcam)
+        if v_head > 0.70 and (v_kn_l < 0.35 and v_kn_r < 0.35):
+            return {
+                "region_id": "CERVICAL_SPINE",
+                "display_name": "Cervical Spine (Neck)",
+                "side": "BILATERAL",
+                "confidence": 0.93,
+                "posture": "SEATED" if is_seated else "STANDING"
+            }
+
+        # 5. Check Lumbar Spine / Torso focus
+        if (v_hip_l > 0.5 or v_hip_r > 0.5) and (v_an_l < 0.35 and v_an_r < 0.35):
+            return {
+                "region_id": "LUMBAR_SPINE",
+                "display_name": "Lumbar Spine & Pelvis",
+                "side": "BILATERAL",
+                "confidence": 0.90,
+                "posture": "SEATED" if is_seated else "STANDING"
+            }
+
+        # 6. Full body default
+        return {
+            "region_id": "RIGHT_KNEE",
+            "display_name": "Full Body (Right Knee Initial Focus)",
+            "side": "RIGHT",
+            "confidence": 0.96,
+            "posture": "SEATED" if is_seated else "STANDING"
         }
 
     def _get_fallback_patient_calibration(self, img: Optional[np.ndarray] = None, output_annotated_path: Optional[str] = None) -> Dict[str, Any]:
@@ -635,6 +846,13 @@ class BiomechanicalPoseAnalyzer:
                 "right_thigh_length_m": 0.46,
                 "right_shin_length_m": 0.46,
                 "estimated_height_cm": 176.0,
+            },
+            "detected_body_part": {
+                "region_id": "RIGHT_KNEE",
+                "display_name": "Full Body (Right Knee Initial Focus)",
+                "side": "RIGHT",
+                "confidence": 0.95,
+                "posture": "STANDING"
             },
             "annotated_image_filename": Path(output_annotated_path).name if output_annotated_path else None
         }

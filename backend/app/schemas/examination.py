@@ -22,6 +22,8 @@ class PatientCalibrationResponse(BaseModel):
     body_proportions: Dict[str, Any]
     annotated_image_url: Optional[str] = None
     photo_url: Optional[str] = None
+    calibrated_mesh_url: Optional[str] = None
+    detected_body_part: Optional[Dict[str, Any]] = None
 
 class StepInputConfig(BaseModel):
     choices: Optional[List[Dict[str, str]]] = None

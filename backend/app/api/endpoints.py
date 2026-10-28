@@ -86,6 +86,23 @@ async def calibrate_patient_mesh(
         is_demo=bool(is_demo)
     )
 
+    calibrated_glb_url = None
+    if calibration_result.get("is_calibrated") and calibration_result.get("landmarks_3d"):
+        try:
+            from app.vision.smpl_fitter import smpl_mesh_fitter
+            mesh_filename = f"calib_mesh_{uuid.uuid4().hex[:8]}.glb"
+            glb_out_path = str(settings.STATIC_DIR / mesh_filename)
+            fit_res = smpl_mesh_fitter.fit_and_export_glb(
+                landmarks=calibration_result["landmarks_3d"],
+                output_glb_path=glb_out_path,
+                body_proportions=calibration_result.get("body_proportions")
+            )
+            if fit_res and "key_joint_positions" in fit_res:
+                calibrated_glb_url = f"/static/{mesh_filename}"
+                calibration_result["key_joint_positions"] = fit_res["key_joint_positions"]
+        except Exception as e:
+            print(f"[calibrate_patient_mesh] Error fitting SMPL mesh: {e}")
+
     photo_url = f"/uploads/{Path(image_path).name}" if image_path else None
     annotated_url = f"/static/{annotated_filename}" if annotated_filename else None
 
@@ -96,7 +113,9 @@ async def calibrate_patient_mesh(
         "key_joint_positions": calibration_result["key_joint_positions"],
         "body_proportions": calibration_result["body_proportions"],
         "annotated_image_url": annotated_url,
-        "photo_url": photo_url
+        "photo_url": photo_url,
+        "calibrated_mesh_url": calibrated_glb_url,
+        "detected_body_part": calibration_result.get("detected_body_part")
     }
 
 @router.post("", response_model=ExaminationDetailResponse)

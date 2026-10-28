@@ -62,6 +62,14 @@ export interface BodyProportions {
   estimated_height_cm: number;
 }
 
+export interface DetectedBodyPart {
+  region_id: string;
+  display_name: string;
+  side: 'RIGHT' | 'LEFT' | 'BILATERAL';
+  confidence: number;
+  posture: 'SEATED' | 'STANDING';
+}
+
 export interface PatientCalibration {
   status: string;
   is_calibrated: boolean;
@@ -70,6 +78,8 @@ export interface PatientCalibration {
   body_proportions: BodyProportions;
   annotated_image_url?: string | null;
   photo_url?: string | null;
+  calibrated_mesh_url?: string | null;
+  detected_body_part?: DetectedBodyPart | null;
 }
 
 export interface TimeSeriesSample {

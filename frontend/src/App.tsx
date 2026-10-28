@@ -8,7 +8,6 @@ import {
   createExamination,
   submitStepJson,
   submitStepFormData,
-  calibratePatientMesh,
 } from './services/api';
 import {
   Stethoscope,
@@ -19,7 +18,7 @@ import {
 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const [selectedRegion, setSelectedRegion] = useState<string>('RIGHT_KNEE');
+  const [selectedRegion, setSelectedRegion] = useState<string>('');
   const [affectedSide, setAffectedSide] = useState<'RIGHT' | 'LEFT'>('RIGHT');
   const [examination, setExamination] = useState<Examination | null>(null);
   const [patientCalibration, setPatientCalibration] = useState<PatientCalibration | null>(null);
@@ -60,18 +59,8 @@ export const App: React.FC = () => {
     setSelectedRegion(region);
     setAffectedSide(side);
 
-    // If examination is not already active, ensure we have patient calibration and start AI protocol
+    // If examination is not already active, start the AI clinical protocol
     if (!examination) {
-      let calib = patientCalibration;
-      if (!calib) {
-        try {
-          calib = await calibratePatientMesh(null, true);
-          setPatientCalibration(calib);
-        } catch (e) {
-          console.warn('Auto-calibration fallback:', e);
-        }
-      }
-
       await handleStartExam({
         patient_id: 'PT-4821',
         patient_name: 'John Doe',
@@ -148,7 +137,7 @@ export const App: React.FC = () => {
   const handleResetSession = () => {
     if (confirm('Start a new physical examination session? Current progress will be archived.')) {
       setExamination(null);
-      setSelectedRegion('RIGHT_KNEE');
+      setSelectedRegion('');
       setAffectedSide('RIGHT');
       setPatientCalibration(null);
     }
@@ -231,7 +220,13 @@ export const App: React.FC = () => {
           <AIWorkflowPanel
             examination={examination}
             patientCalibration={effectiveCalibration}
-            onCalibratePatient={(calib) => setPatientCalibration(calib)}
+            onCalibratePatient={(calib) => {
+              setPatientCalibration(calib);
+              if (calib.detected_body_part) {
+                setSelectedRegion(calib.detected_body_part.region_id);
+                setAffectedSide(calib.detected_body_part.side === 'BILATERAL' ? 'RIGHT' : calib.detected_body_part.side);
+              }
+            }}
             onResetCalibration={() => setPatientCalibration(null)}
             onStartExam={handleStartExam}
             onSubmitStep={handleSubmitStep}

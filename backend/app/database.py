@@ -25,4 +25,14 @@ def get_db():
 
 def init_db():
     from app.models import examination
+    from sqlalchemy import text
     Base.metadata.create_all(bind=engine)
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(examination_steps);")).fetchall()
+            columns = [r[1] for r in result]
+            if "patient_question_hi" not in columns:
+                conn.execute(text("ALTER TABLE examination_steps ADD COLUMN patient_question_hi TEXT;"))
+                conn.commit()
+    except Exception:
+        pass

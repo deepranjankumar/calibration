@@ -14,12 +14,34 @@ import {
   RotateCw,
   FileText,
   Volume2,
+  VolumeX,
+  Radio,
   Sparkles,
   Camera,
   UserCheck,
   RefreshCw,
   Target,
+  Mic,
+  MicOff,
+  History,
+  Brain,
+  Edit3,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
 } from 'lucide-react';
+import {
+  getHindiQuestion,
+  speakInIndianHindi,
+  findIndianHindiVoice,
+  stopSpeaking,
+} from '../../utils/hindiTranslations';
+import {
+  startPatientVoiceRecognition,
+  parsePatientSpokenIntent,
+  getConsultationHistorySummary,
+  type SpeechRecognizerSession,
+} from '../../utils/speechRecognition';
 
 interface AIWorkflowPanelProps {
   examination: Examination | null;
@@ -76,6 +98,19 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [useSyntheticDemo, setUseSyntheticDemo] = useState<boolean>(false);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+
+  // Hindi & Indian Voice State (Defaults to Hindi for village accessibility)
+  const [languageMode, setLanguageMode] = useState<'hi' | 'en'>('hi');
+  const [autoSpeakEnabled, setAutoSpeakEnabled] = useState<boolean>(true);
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [detectedVoiceLabel, setDetectedVoiceLabel] = useState<string>('भारतीय हिंदी आवाज़');
+
+  // Patient Speech-to-Text & Live Editable Transcript State
+  const [isListeningPatient, setIsListeningPatient] = useState<boolean>(false);
+  const [patientTranscript, setPatientTranscript] = useState<string>('');
+  const [autoDetectedPill, setAutoDetectedPill] = useState<string | null>(null);
+  const [showHistoryPanel, setShowHistoryPanel] = useState<boolean>(false);
+  const activeSpeechSessionRef = useRef<SpeechRecognizerSession | null>(null);
 
   // Live webcam recording state
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -207,6 +242,15 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
     setVideoFile(null);
     setUseSyntheticDemo(false);
     setVideoPreviewUrl(null);
+    setPatientTranscript('');
+    setAutoDetectedPill(null);
+
+    // Stop listening session if step changes
+    if (activeSpeechSessionRef.current) {
+      activeSpeechSessionRef.current.stop();
+      activeSpeechSessionRef.current = null;
+    }
+    setIsListeningPatient(false);
   }, [currentStep?.id]);
 
   const handleStartWebcam = async () => {
@@ -260,30 +304,165 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
     e.preventDefault();
     if (!currentStep) return;
 
+    // Stop listening before submitting
+    if (activeSpeechSessionRef.current) {
+      activeSpeechSessionRef.current.stop();
+      activeSpeechSessionRef.current = null;
+    }
+    setIsListeningPatient(false);
+
     await onSubmitStep({
       response_boolean: booleanResponse ?? undefined,
       response_choice: selectedChoice || undefined,
+      response_text: patientTranscript.trim() || undefined,
       response_numeric: currentStep.action_type === 'PALPATION_SCORE' ? numericScore : undefined,
       use_synthetic_kinematic_demo: useSyntheticDemo,
       videoFile: videoFile,
     });
   };
 
-  // Text-to-speech helper for the AI asking the question
-  const speakQuestion = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      window.speechSynthesis.speak(utterance);
+  const applySmartIntent = (parsed: ReturnType<typeof parsePatientSpokenIntent>) => {
+    if (!currentStep) return;
+
+    if (currentStep.action_type === 'QUESTION_BOOLEAN' && parsed.detectedBoolean !== undefined) {
+      setBooleanResponse(parsed.detectedBoolean);
+      setAutoDetectedPill(parsed.confidenceReason || (parsed.detectedBoolean ? 'हाँ / Yes' : 'नहीं / No'));
+    } else if (currentStep.action_type === 'QUESTION_CHOICE' && parsed.detectedChoice) {
+      setSelectedChoice(parsed.detectedChoice);
+      setAutoDetectedPill(parsed.confidenceReason || parsed.detectedChoice);
+    } else if (currentStep.action_type === 'PALPATION_SCORE' && parsed.detectedNumeric !== undefined) {
+      setNumericScore(parsed.detectedNumeric);
+      setAutoDetectedPill(parsed.confidenceReason || `${parsed.detectedNumeric}/10 NRS`);
     }
   };
+
+  const handleToggleListenPatient = () => {
+    if (isListeningPatient) {
+      if (activeSpeechSessionRef.current) {
+        activeSpeechSessionRef.current.stop();
+        activeSpeechSessionRef.current = null;
+      }
+      setIsListeningPatient(false);
+      return;
+    }
+
+    // Stop any active AI speech output
+    stopSpeaking();
+    setIsSpeaking(false);
+    setAutoDetectedPill(null);
+
+    const langCode = languageMode === 'hi' ? 'hi-IN' : 'en-IN';
+    const session = startPatientVoiceRecognition({
+      lang: langCode,
+      onStart: () => {
+        setIsListeningPatient(true);
+      },
+      onInterimResult: (interimText) => {
+        setPatientTranscript(interimText);
+        if (currentStep) {
+          const parsed = parsePatientSpokenIntent(interimText, currentStep);
+          applySmartIntent(parsed);
+        }
+      },
+      onFinalResult: (finalText) => {
+        setPatientTranscript(finalText);
+        if (currentStep) {
+          const parsed = parsePatientSpokenIntent(finalText, currentStep);
+          applySmartIntent(parsed);
+        }
+      },
+      onEnd: () => {
+        setIsListeningPatient(false);
+        activeSpeechSessionRef.current = null;
+      },
+      onError: (err) => {
+        console.warn('[SpeechRecognition] error:', err);
+        setIsListeningPatient(false);
+        activeSpeechSessionRef.current = null;
+      },
+    });
+
+    if (session) {
+      activeSpeechSessionRef.current = session;
+    } else {
+      alert('Speech recognition is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Safari.');
+    }
+  };
+
+  const handleClearTranscript = () => {
+    setPatientTranscript('');
+    setAutoDetectedPill(null);
+  };
+
+  // Update detected Indian voice label
+  React.useEffect(() => {
+    const updateVoiceLabel = () => {
+      const v = findIndianHindiVoice();
+      if (v) {
+        setDetectedVoiceLabel(v.name.includes('(') ? v.name.split('(')[0].trim() : v.name);
+      } else {
+        setDetectedVoiceLabel('Indian Hindi Voice (hi-IN)');
+      }
+    };
+    updateVoiceLabel();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = updateVoiceLabel;
+    }
+    return () => {
+      stopSpeaking();
+    };
+  }, []);
+
+  const playQuestionAudio = (mode?: 'hi' | 'en') => {
+    if (!currentStep) return;
+    const targetMode = mode || languageMode;
+    const hindiText = getHindiQuestion(currentStep.step_id, currentStep.patient_question_hi);
+    const englishText = currentStep.patient_question || hindiText;
+
+    if (targetMode === 'hi') {
+      setIsSpeaking(true);
+      speakInIndianHindi(hindiText, {
+        onStart: () => setIsSpeaking(true),
+        onEnd: () => setIsSpeaking(false),
+        onError: () => setIsSpeaking(false),
+      });
+    } else {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(englishText);
+        utterance.rate = 0.92;
+        utterance.pitch = 1.0;
+        utterance.onstart = () => setIsSpeaking(true);
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  };
+
+  const handleStopAudio = () => {
+    stopSpeaking();
+    setIsSpeaking(false);
+  };
+
+  // Auto-speak question in Hindi when moving to next step
+  React.useEffect(() => {
+    if (currentStep?.patient_question && autoSpeakEnabled) {
+      const timer = setTimeout(() => {
+        playQuestionAudio(languageMode);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentStep?.step_id, autoSpeakEnabled, languageMode]);
+
+  const consultationHistory = examination
+    ? getConsultationHistorySummary(examination)
+    : { completedStepsCount: 0, totalStepsCount: 0, historyItems: [], contextSummaryHi: '', contextSummaryEn: '' };
 
   return (
     <div className="flex flex-col h-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
       {/* --- PANEL HEADER --- */}
-      <div className="bg-slate-950 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="bg-slate-950 px-5 py-3.5 border-b border-slate-800 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-cyan-950/80 border border-cyan-500/40 rounded-xl text-cyan-400">
             <Activity className="w-5 h-5 animate-pulse" />
@@ -301,15 +480,69 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
           </div>
         </div>
 
-        {examination && (
+        {/* --- Language & Indian Voice Audio Controls --- */}
+        <div className="flex items-center gap-2.5">
+          {/* Language Toggle: Hindi vs English */}
+          <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-xl p-1 shadow-inner">
+            <button
+              type="button"
+              onClick={() => {
+                setLanguageMode('hi');
+                playQuestionAudio('hi');
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                languageMode === 'hi'
+                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/60 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="गाँव के मरीजों के लिए भारतीय हिंदी आवाज़ (Indian Hindi Voice for Village Patients)"
+            >
+              <span>🇮🇳</span>
+              <span>हिंदी</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLanguageMode('en');
+                playQuestionAudio('en');
+              }}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
+                languageMode === 'en'
+                  ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/60 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="English Medical Phrasing"
+            >
+              <span>🇬🇧</span>
+              <span>EN</span>
+            </button>
+          </div>
+
+          {/* Auto-Voice Announcement Toggle */}
           <button
-            onClick={onOpenReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-600/80 transition-colors shadow-sm"
+            type="button"
+            onClick={() => setAutoSpeakEnabled(!autoSpeakEnabled)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+              autoSpeakEnabled
+                ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300 shadow-sm'
+                : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-400'
+            }`}
+            title={autoSpeakEnabled ? 'आवाज़ स्वतः चालू है (Auto-Voice ON)' : 'आवाज़ बंद है (Auto-Voice OFF)'}
           >
-            <FileText className="w-3.5 h-3.5 text-cyan-400" />
-            Clinical Report
+            <Radio className={`w-3.5 h-3.5 ${autoSpeakEnabled ? 'animate-pulse text-emerald-400' : ''}`} />
+            <span className="hidden sm:inline">Auto-Voice</span>
           </button>
-        )}
+
+          {examination && (
+            <button
+              onClick={onOpenReport}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-600/80 transition-colors shadow-sm"
+            >
+              <FileText className="w-3.5 h-3.5 text-cyan-400" />
+              Report
+            </button>
+          )}
+        </div>
       </div>
 
       {/* --- BODY SCROLL AREA --- */}
@@ -807,6 +1040,74 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
               </div>
             )}
 
+            {/* --- 🧠 CONSULTATION CLINICAL MEMORY & PREVIOUS KNOWLEDGE PANEL --- */}
+            {examination && (
+              <div className="bg-slate-950/95 border border-indigo-500/40 rounded-xl p-3.5 shadow-xl space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-indigo-950 border border-indigo-500/40 rounded-xl text-indigo-400">
+                      <Brain className="w-4 h-4 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-2">
+                        <span>AI क्लिनिकल मेमोरी व पूर्व ज्ञान</span>
+                        <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800/80 px-2 py-0.5 rounded-full font-mono">
+                          {consultationHistory.completedStepsCount} / {consultationHistory.totalStepsCount} Steps Logged
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug mt-0.5">
+                        {languageMode === 'hi' ? consultationHistory.contextSummaryHi : consultationHistory.contextSummaryEn}
+                      </p>
+                    </div>
+                  </div>
+
+                  {consultationHistory.completedStepsCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold border border-slate-700 transition-colors flex-shrink-0"
+                      title="पिछली सभी बातचीत और मरीज के जवाब देखें"
+                    >
+                      <History className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{showHistoryPanel ? 'इतिहास छिपाएं' : 'पिछला इतिहास'}</span>
+                      {showHistoryPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                  )}
+                </div>
+
+                {/* Expandable Consultation History Timeline */}
+                {showHistoryPanel && consultationHistory.historyItems.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-slate-800 space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {consultationHistory.historyItems.map((item) => (
+                      <div
+                        key={item.stepIndex}
+                        className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5 text-xs space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between text-[10px] text-indigo-300 font-mono">
+                          <span className="font-bold">कदम {item.stepIndex}: {item.title}</span>
+                          <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">{item.phase}</span>
+                        </div>
+                        <div className="text-slate-200 font-medium text-[11px] leading-relaxed">
+                          Q: "{item.questionHi || item.questionEn}"
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800/60">
+                          <span className="text-emerald-400 font-bold flex items-center gap-1 text-[11px]">
+                            <CheckCircle2 className="w-3 h-3" />
+                            {item.answerSummary}
+                          </span>
+                          {item.spokenTranscript && (
+                            <span className="text-[11px] text-amber-300/90 italic truncate max-w-[220px]" title={item.spokenTranscript}>
+                              🗣️ "{item.spokenTranscript}"
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* --- ACTIVE STEP CARD (AI DIRECTIVE & QUESTION) --- */}
             {examination.status === 'ACTIVE' && currentStep && (
               <form onSubmit={handleFormSubmit} className="space-y-4">
@@ -825,6 +1126,17 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                     {currentStep.title}
                   </h3>
 
+                  {/* Context Continuity Notice (Shows AI knowledge of prior question/answer) */}
+                  {consultationHistory.completedStepsCount > 0 && (
+                    <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-lg px-3 py-1.5 text-[11px] text-indigo-300 flex items-center gap-2">
+                      <Brain className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+                      <span>
+                        <strong>पूर्व संदर्भ (Prior Context):</strong>{' '}
+                        {consultationHistory.historyItems[consultationHistory.historyItems.length - 1]?.answerSummary}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Operator Directive */}
                   <div className="bg-blue-950/40 border border-blue-600/30 rounded-lg p-3">
                     <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wide mb-1 flex items-center gap-1">
@@ -836,25 +1148,160 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                     </p>
                   </div>
 
-                  {/* Patient Question (Verbatim dialogue) */}
+                  {/* Patient Question (Verbatim dialogue with Indian Hindi Voice) */}
                   {currentStep.patient_question && (
-                    <div className="bg-slate-900 border border-slate-700/80 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wide">
-                          Ask Patient Verbatim:
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => speakQuestion(currentStep.patient_question!)}
-                          title="Read Question Aloud"
-                          className="text-slate-400 hover:text-cyan-300 p-1 rounded transition-colors"
-                        >
-                          <Volume2 className="w-3.5 h-3.5" />
-                        </button>
+                    <div className="bg-slate-900/95 border-2 border-amber-500/40 rounded-xl p-3.5 shadow-lg space-y-2.5">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
+                            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                            {languageMode === 'hi' ? 'मरीज से सीधे पूछें (गाँव / सरल हिंदी):' : 'Ask Patient Verbatim:'}
+                          </span>
+                          <span className="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-800/80 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
+                            <span>🇮🇳</span> {detectedVoiceLabel}
+                          </span>
+                        </div>
+
+                        {/* Audio Controls */}
+                        <div className="flex items-center gap-1.5">
+                          {isSpeaking ? (
+                            <button
+                              type="button"
+                              onClick={handleStopAudio}
+                              className="flex items-center gap-1.5 px-3 py-1 bg-red-950 hover:bg-red-900 text-red-300 border border-red-700/80 rounded-lg text-xs font-semibold shadow transition-all animate-pulse"
+                              title="आवाज़ रोकें (Stop Speaking)"
+                            >
+                              <VolumeX className="w-3.5 h-3.5 text-red-400" />
+                              <span>रोकें</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => playQuestionAudio('hi')}
+                              className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white border border-amber-400/50 rounded-lg text-xs font-bold shadow-md transition-all active:scale-95"
+                              title="भारतीय हिंदी आवाज़ में बोलकर सुनाएं"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span>🔊 हिंदी बोलें</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => playQuestionAudio('en')}
+                            className="p-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs font-semibold transition-colors"
+                            title="English Voice Readout"
+                          >
+                            EN
+                          </button>
+                        </div>
                       </div>
-                      <blockquote className="text-xs italic text-slate-200 border-l-2 border-amber-400 pl-2 py-0.5">
-                        "{currentStep.patient_question}"
+
+                      {/* Primary Hindi Text */}
+                      <blockquote className="text-sm font-medium text-amber-200 border-l-4 border-amber-400 pl-3 py-1.5 leading-relaxed bg-amber-950/20 rounded-r-lg">
+                        "{getHindiQuestion(currentStep.step_id, currentStep.patient_question_hi)}"
                       </blockquote>
+
+                      {/* English subtitle for operator reference */}
+                      <div className="text-[11px] text-slate-400 italic pl-3 border-l-2 border-slate-700/60 flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-500 uppercase not-italic font-mono">EN:</span>
+                        "{currentStep.patient_question}"
+                      </div>
+
+                      {/* --- Patient Voice Answer & Real-time Editable Transcript --- */}
+                      <div className="bg-slate-950/95 border border-cyan-500/30 rounded-xl p-3 space-y-2 mt-3 pt-3 border-t border-slate-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5">
+                            <Mic className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>मरीज की आवाज़ सुनें (Patient Voice Answer):</span>
+                          </span>
+
+                          <div className="flex items-center gap-2">
+                            {isListeningPatient ? (
+                              <button
+                                type="button"
+                                onClick={handleToggleListenPatient}
+                                className="flex items-center gap-1.5 px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold animate-pulse shadow-md transition-all"
+                                title="सुनना समाप्त करें (Stop Listening)"
+                              >
+                                <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                                <MicOff className="w-3.5 h-3.5" />
+                                <span>⏹ बोलना समाप्त (Done)</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={handleToggleListenPatient}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-bold shadow-md transition-all active:scale-95"
+                                title="मरीज के उत्तर को आवाज़ से सुनें और टाइप करें"
+                              >
+                                <Mic className="w-3.5 h-3.5" />
+                                <span>🎤 मरीज की आवाज़ सुनें (Listen)</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Listening Radar / Pulse Bar */}
+                        {isListeningPatient && (
+                          <div className="flex items-center gap-2 px-2.5 py-1.5 bg-cyan-950/70 border border-cyan-500/40 rounded-lg text-xs text-cyan-200 animate-pulse">
+                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                            <span>
+                              {languageMode === 'hi'
+                                ? '🔴 माइक चालू है: मरीज हिंदी में अपना जवाब बोलें...'
+                                : '🔴 Microphone listening: Patient speaking...'}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Auto-detected intent banner */}
+                        {autoDetectedPill && (
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/80 border border-emerald-500/40 rounded-lg text-[11px] text-emerald-300">
+                            <Sparkles className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                            <span><strong>AI Auto-Recognized:</strong> {autoDetectedPill}</span>
+                          </div>
+                        )}
+
+                        {/* Editable Live Transcript Area */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px] text-slate-400">
+                            <span className="flex items-center gap-1 text-slate-300">
+                              <Edit3 className="w-3 h-3 text-amber-400" />
+                              मरीज का बोला गया जवाब (Editable Transcript):
+                            </span>
+                            {patientTranscript && (
+                              <button
+                                type="button"
+                                onClick={handleClearTranscript}
+                                className="text-red-400 hover:text-red-300 flex items-center gap-0.5 text-[10px]"
+                                title="ट्रांसक्रिप्ट हटाएं"
+                              >
+                                <Trash2 className="w-2.5 h-2.5" />
+                                साफ़ करें (Clear)
+                              </button>
+                            )}
+                          </div>
+
+                          <textarea
+                            value={patientTranscript}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPatientTranscript(val);
+                              if (currentStep) {
+                                const parsed = parsePatientSpokenIntent(val, currentStep);
+                                applySmartIntent(parsed);
+                              }
+                            }}
+                            rows={2}
+                            placeholder={
+                              languageMode === 'hi'
+                                ? 'मरीज के बोलने पर शब्द यहाँ स्वतः टाइप होंगे... (यदि कोई गलती हो तो आप यहाँ क्लिक करके सुधार सकते हैं)'
+                                : 'Spoken words appear here in real-time... (Click to edit or correct any mistake)'
+                            }
+                            className="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-lg p-2.5 text-xs text-slate-100 placeholder-slate-500 resize-none transition-all leading-relaxed"
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

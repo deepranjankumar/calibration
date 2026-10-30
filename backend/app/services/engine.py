@@ -68,6 +68,7 @@ class ExaminationWorkflowEngine:
                 title=step_def.title,
                 operator_instruction=step_def.operator_instruction,
                 patient_question=step_def.patient_question,
+                patient_question_hi=getattr(step_def, "patient_question_hi", None),
                 action_type=step_def.action_type,
                 input_config=step_def.input_config,
                 status="CURRENT" if idx == 1 else "PENDING"
@@ -218,10 +219,11 @@ class ExaminationWorkflowEngine:
             sub.annotated_video_filename = annotated_filename
 
             # Save Biomechanical Measurement
+            region_label = exam.selected_region.replace('_', ' ').title()
             measurement = BiomechanicalMeasurement(
                 examination_id=exam.id,
                 submission_id=sub.id,
-                joint_name=f"{exam.affected_side}_KNEE",
+                joint_name=f"{exam.affected_side}_{exam.selected_region}",
                 movement_type=step_def.step_id,
                 terminal_extension_deg=cv_results["terminal_extension_deg"],
                 maximum_flexion_deg=cv_results["maximum_flexion_deg"],
@@ -243,10 +245,10 @@ class ExaminationWorkflowEngine:
                 examination_id=exam.id,
                 source_category="CALCULATED_MEASUREMENT",
                 code="ACTIVE_ROM_METRICS",
-                title=f"Active Knee Kinematics ({exam.affected_side})",
+                title=f"Active Kinematics ({exam.affected_side} {region_label})",
                 description=(
-                    f"Measured Terminal Extension: {cv_results['terminal_extension_deg']}° (normal: 0°-5°). "
-                    f"Maximum Flexion: {cv_results['maximum_flexion_deg']}° (normal: 130°-145°). "
+                    f"Measured Terminal Position: {cv_results['terminal_extension_deg']}°. "
+                    f"Maximum Flexion / Excursion: {cv_results['maximum_flexion_deg']}°. "
                     f"Total Active ROM: {cv_results['range_of_motion_deg']}° with peak velocity {cv_results['peak_angular_velocity_dps']}°/s."
                 ),
                 severity="MODERATE" if cv_results['terminal_extension_deg'] > 8.0 or cv_results['maximum_flexion_deg'] < 120.0 else "NORMAL",

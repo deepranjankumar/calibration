@@ -70,6 +70,7 @@ class ExaminationStepRecord(Base):
     # Clear separation of roles
     operator_instruction = Column(Text, nullable=False)
     patient_question = Column(Text, nullable=True)
+    patient_question_hi = Column(Text, nullable=True)
     action_type = Column(String(64), nullable=False) # QUESTION_BOOLEAN, QUESTION_CHOICE, VIDEO_MOVEMENT, PALPATION_SCORE
     input_config = Column(JSON, nullable=True) # Options, guidance, camera angle requirements
     

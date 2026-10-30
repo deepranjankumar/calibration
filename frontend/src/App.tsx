@@ -99,6 +99,9 @@ export const App: React.FC = () => {
         if (payload.response_numeric !== undefined) {
           formData.append('response_numeric', String(payload.response_numeric));
         }
+        if (payload.response_text) {
+          formData.append('response_text', payload.response_text);
+        }
         formData.append('use_synthetic_kinematic_demo', String(payload.use_synthetic_kinematic_demo || false));
 
         updatedExam = await submitStepFormData(

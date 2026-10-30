@@ -10,11 +10,11 @@ start "Backend - FastAPI" cmd /k "cd /d %~dp0backend && python -m uvicorn app.ma
 
 echo.
 echo [2/2] Starting React + Three.js Frontend on http://localhost:5173...
-start "Frontend - Vite React" cmd /k "cd /d %~dp0frontend && npx vite"
+start "Frontend - Vite React" cmd /k "cd /d %~dp0frontend && npm run dev"
 
 echo.
 echo Waiting for servers to initialize...
-timeout /t 3 >nul
+timeout /t 5 >nul
 
 echo Opening web application in your default browser...
 start http://localhost:5173

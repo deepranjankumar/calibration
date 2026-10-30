@@ -35,6 +35,17 @@ class StepInputConfig(BaseModel):
     required_duration_sec: Optional[int] = None
     sample_clip_available: Optional[bool] = False
 
+class StepSubmissionSummarySchema(BaseModel):
+    id: str
+    response_boolean: Optional[bool] = None
+    response_choice: Optional[str] = None
+    response_text: Optional[str] = None
+    response_numeric: Optional[float] = None
+    submitted_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 class ExaminationStepSchema(BaseModel):
     id: str
     step_id: str
@@ -43,10 +54,12 @@ class ExaminationStepSchema(BaseModel):
     title: str
     operator_instruction: str
     patient_question: Optional[str] = None
+    patient_question_hi: Optional[str] = None
     action_type: str
     status: str
     input_config: Optional[Dict[str, Any]] = None
     completed_at: Optional[datetime] = None
+    submission: Optional[StepSubmissionSummarySchema] = None
 
     class Config:
         from_attributes = True

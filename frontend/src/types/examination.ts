@@ -30,6 +30,15 @@ export interface StepInputConfig {
   severity_brackets?: Array<{ range: [number, number]; label: string }>;
 }
 
+export interface StepSubmissionSummary {
+  id: string;
+  response_boolean?: boolean | null;
+  response_choice?: string | null;
+  response_text?: string | null;
+  response_numeric?: number | null;
+  submitted_at?: string | null;
+}
+
 export interface ExaminationStep {
   id: string;
   step_id: string;
@@ -38,10 +47,12 @@ export interface ExaminationStep {
   title: string;
   operator_instruction: string;
   patient_question?: string | null;
+  patient_question_hi?: string | null;
   action_type: StepActionType;
   status: 'PENDING' | 'CURRENT' | 'COMPLETED' | 'SKIPPED';
   input_config?: StepInputConfig | null;
   completed_at?: string | null;
+  submission?: StepSubmissionSummary | null;
 }
 
 export interface Landmark3D {

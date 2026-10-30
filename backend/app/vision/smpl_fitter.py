@@ -237,6 +237,9 @@ class SMPLMeshFitter:
             v_shin_l = pt_an_l - pt_kn_l
             if vis_an_l > 0.30 and np.linalg.norm(v_shin_l) > 0.05:
                 v_shin_l_local = R[1].T @ v_shin_l
+                if v_shin_l_local[2] > 0.02:
+                    v_shin_l_local[2] = 0.0
+                v_shin_l_local /= (np.linalg.norm(v_shin_l_local) + 1e-8)
                 R[4] = rot_from_u_to_v(np.array([0, -1, 0], dtype=np.float32), v_shin_l_local)
             elif is_seated:
                 # Natural 80 deg knee flexion when seated
@@ -251,10 +254,20 @@ class SMPLMeshFitter:
             v_shin_r = pt_an_r - pt_kn_r
             if vis_an_r > 0.30 and np.linalg.norm(v_shin_r) > 0.05:
                 v_shin_r_local = R[2].T @ v_shin_r
+                if v_shin_r_local[2] > 0.02:
+                    v_shin_r_local[2] = 0.0
+                v_shin_r_local /= (np.linalg.norm(v_shin_r_local) + 1e-8)
                 R[5] = rot_from_u_to_v(np.array([0, -1, 0], dtype=np.float32), v_shin_r_local)
             elif is_seated:
                 ang = np.radians(80.0)
                 R[5] = np.array([[1, 0, 0], [0, np.cos(ang), -np.sin(ang)], [0, np.sin(ang), np.cos(ang)]], dtype=np.float32)
+
+        # Ankles & Feet (Joint 7: L Ankle, Joint 8: R Ankle)
+        if is_seated:
+            # Level feet parallel to ground grid in seated posture
+            foot_ang = np.radians(75.0)
+            R[7] = np.array([[1, 0, 0], [0, np.cos(foot_ang), np.sin(foot_ang)], [0, -np.sin(foot_ang), np.cos(foot_ang)]], dtype=np.float32)
+            R[8] = np.array([[1, 0, 0], [0, np.cos(foot_ang), np.sin(foot_ang)], [0, -np.sin(foot_ang), np.cos(foot_ang)]], dtype=np.float32)
 
         # 3. Forward Kinematics to calculate transformation matrices
         T = [np.eye(4, dtype=np.float32) for _ in range(24)]

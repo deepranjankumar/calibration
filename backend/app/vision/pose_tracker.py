@@ -114,6 +114,10 @@ class BiomechanicalPoseAnalyzer:
             p1_idx = 11 if is_left else 12
             vertex_idx = 23 if is_left else 24
             p2_idx = 25 if is_left else 26
+        elif "CERVICAL" in joint or "NECK" in joint:
+            p1_idx = 0
+            vertex_idx = 11 if is_left else 12
+            p2_idx = 23 if is_left else 24
         else:
             p1_idx = 23 if is_left else 24
             vertex_idx = 25 if is_left else 26
@@ -447,17 +451,27 @@ class BiomechanicalPoseAnalyzer:
             clahe_img = cv2.cvtColor(cv2.merge((cl, a_chan, b_chan)), cv2.COLOR_LAB2BGR)
             detection_passes.append(("clahe", clahe_img, False, 0))
 
-            # Pass 4: Square-padded
+            # Pass 4: Square-padded aspect ratio (landscape or portrait)
             if width > height:
                 pad_top = (width - height) // 2
                 pad_bottom = width - height - pad_top
-                padded = cv2.copyMakeBorder(brightened, pad_top, pad_bottom, 0, 0, cv2.BORDER_CONSTANT, value=[0, 0, 0])
-                detection_passes.append(("square", padded, True, pad_top))
+                padded_w = cv2.copyMakeBorder(brightened, pad_top, pad_bottom, 0, 0, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+                detection_passes.append(("square_landscape", padded_w, "top", pad_top, width))
+            elif height > width:
+                pad_left = (height - width) // 2
+                pad_right = height - width - pad_left
+                padded_h = cv2.copyMakeBorder(brightened, 0, 0, pad_left, pad_right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+                detection_passes.append(("square_portrait", padded_h, "left", pad_left, height))
 
             best_lms = None
             best_vis_sum = -1.0
 
-            for pass_name, cur_img, is_square_padded, pad_t in detection_passes:
+            for pass_info in detection_passes:
+                pass_name = pass_info[0]
+                cur_img = pass_info[1]
+                pad_mode = pass_info[2]
+                pad_offset = pass_info[3]
+                max_dim = pass_info[4] if len(pass_info) > 4 else width
                 try:
                     rgb_img = cv2.cvtColor(cur_img, cv2.COLOR_BGR2RGB)
                     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
@@ -469,12 +483,15 @@ class BiomechanicalPoseAnalyzer:
                             best_vis_sum = vis_sum
                             best_lms = []
                             for i, lm in enumerate(raw_lms):
+                                x_val = float(lm.x)
                                 y_val = float(lm.y)
-                                if is_square_padded:
-                                    y_val = float((lm.y * width - pad_t) / height)
+                                if pad_mode == "top":
+                                    y_val = float((lm.y * max_dim - pad_offset) / height)
+                                elif pad_mode == "left":
+                                    x_val = float((lm.x * max_dim - pad_offset) / width)
                                 best_lms.append({
                                     "id": i,
-                                    "x": float(lm.x),
+                                    "x": x_val,
                                     "y": y_val,
                                     "z": float(lm.z),
                                     "visibility": float(getattr(lm, "visibility", 1.0) or 0.8)
@@ -529,11 +546,24 @@ class BiomechanicalPoseAnalyzer:
         sh_l = landmarks_data[11]
         sh_r = landmarks_data[12]
 
-        mid_hip_x = (hip_l["x"] + hip_r["x"]) / 2.0
-        mid_hip_y = (hip_l["y"] + hip_r["y"]) / 2.0
-        mid_sh_y = (sh_l["y"] + sh_r["y"]) / 2.0
-        torso_len_px = abs(mid_hip_y - mid_sh_y) * height
-        scale = 0.55 / max(10.0, torso_len_px)
+        v_hip_l = float(hip_l.get("visibility", 1.0) or 1.0)
+        v_hip_r = float(hip_r.get("visibility", 1.0) or 1.0)
+        sh_w_px = abs(sh_l["x"] - sh_r["x"]) * width
+
+        # Check if hips are truncated (partial upper-body close up)
+        if (v_hip_l < 0.25 and v_hip_r < 0.25) or (hip_l["y"] > 0.98 and hip_r["y"] > 0.98):
+            synth_torso_px = max(sh_w_px * 1.25, height * 0.35)
+            mid_hip_x = (sh_l["x"] + sh_r["x"]) / 2.0
+            mid_sh_y = (sh_l["y"] + sh_r["y"]) / 2.0
+            mid_hip_y = mid_sh_y + (synth_torso_px / height)
+            torso_len_px = synth_torso_px
+            scale = 0.55 / max(10.0, torso_len_px)
+        else:
+            mid_hip_x = (hip_l["x"] + hip_r["x"]) / 2.0
+            mid_hip_y = (hip_l["y"] + hip_r["y"]) / 2.0
+            mid_sh_y = (sh_l["y"] + sh_r["y"]) / 2.0
+            torso_len_px = abs(mid_hip_y - mid_sh_y) * height
+            scale = 0.55 / max(10.0, torso_len_px)
 
         normalized_3d = []
         for lm in landmarks_data:
@@ -562,8 +592,12 @@ class BiomechanicalPoseAnalyzer:
         r_shin = math.dist(get_pos(26), get_pos(28))
 
         # Robust anatomical height estimation bounded to realistic human range (150cm to 198cm)
-        raw_height_cm = (torso_h + r_thigh + r_shin + 0.35) * 100.0
-        est_height_cm = round(float(np.clip(raw_height_cm, 150.0, 198.0)), 1)
+        if r_thigh < 0.15 or r_shin < 0.15 or (v_hip_l < 0.25 and v_hip_r < 0.25):
+            est_height_cm = round(float(np.clip(torso_h * 320.0, 155.0, 190.0)), 1)
+        else:
+            raw_height_cm = (torso_h + r_thigh + r_shin + 0.35) * 100.0
+            est_height_cm = round(float(np.clip(raw_height_cm, 150.0, 198.0)), 1)
+
         sh_dist = round(float(np.clip(sh_dist, 0.32, 0.56)), 3)
         hip_dist = round(float(np.clip(hip_dist, 0.25, 0.45)), 3)
         torso_h = round(float(np.clip(torso_h, 0.42, 0.68)), 3)

@@ -9,6 +9,7 @@ class ProtocolStepDef:
     operator_instruction: str
     patient_question: Optional[str]
     action_type: str # QUESTION_BOOLEAN, QUESTION_CHOICE, VIDEO_MOVEMENT, PALPATION_SCORE
+    patient_question_hi: Optional[str] = None
     input_config: Dict[str, Any] = field(default_factory=dict)
     
     # State machine transition logic

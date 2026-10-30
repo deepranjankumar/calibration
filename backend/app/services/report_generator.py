@@ -12,63 +12,339 @@ from app.schemas.examination import (
 
 def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
     """
-    Generates evidence-based clinical prescription tailored to the exact body point,
-    anatomical tissue, and biomechanical movement findings.
-    Includes exact medications with 'how to use' and targeted exercises with sets/reps.
+    AI Clinical Decision & Prescription Synthesis Engine.
+    Deeply analyzes all collected clinical data:
+    1. Pinpointed 3D body mesh point & anatomical structures (muscles, ligaments, joints, nerves)
+    2. Patient-reported symptoms (tenderness severity, swelling, radiating neuropathy, fever, GI, cough)
+    3. Computer Vision objective biomechanical measurements (ROM deficit, lag, velocity)
+    4. Regional epidemiological context (Bihar / Purnea formulary)
+    
+    Automatically formulates full diagnosis, tailored medications with Hindi instructions,
+    and targeted rehabilitation exercises so the operator does not have to write anything.
     """
     point_analysis = exam.point_analysis or {}
     region_id = exam.selected_region.upper()
     body_part_name = point_analysis.get("display_name") or exam.selected_region.replace("_", " ").title()
-    tissue_name = point_analysis.get("anatomical_structures", {}).get("primary_muscle", "Musculoskeletal Soft Tissue")
+    structs = point_analysis.get("anatomical_structures", {})
+    primary_muscle = structs.get("primary_muscle", "Target Soft Tissue")
+    innervation = structs.get("innervation", "")
+    tissue_type = structs.get("tissue_type", "Musculoskeletal")
+    side = exam.affected_side or "AFFECTED"
+    age = exam.patient_age or 35
 
-    # 1. Base Medications
-    meds = [
-        MedicationPrescription(
-            name="Diclofenac Diethylamine Gel 1.16% w/w + Menthol (Dynapar / Volini Gel)",
-            form="Topical Gel",
-            dosage="Apply thin ribbon (2-3 cm)",
-            frequency="3 to 4 times daily",
-            duration="7 days",
-            how_to_use="Gently smooth a thin film over the painful area in circular motions until absorbed. Do not rub vigorously or apply over broken skin. Wash hands thoroughly with soap after application. Do not cover with airtight occlusion.",
-            precautions="Avoid contact with eyes or mouth. Discontinue if local skin rash or severe burning occurs."
-        ),
-        MedicationPrescription(
-            name="Tab. Paracetamol 650 mg (Calpol / Dolo 650)",
-            form="Oral Tablet",
-            dosage="1 tablet (650 mg)",
-            frequency="Twice daily after food (1-0-1, as needed for pain)",
-            duration="3 to 5 days",
-            how_to_use="Swallow whole tablet strictly after meals with a full glass of water. Maintain a minimum 6-hour interval between doses. Do not exceed 3 tablets in 24 hours.",
-            precautions="Avoid concurrent alcohol or other paracetamol-containing cold remedies. Avoid if history of severe liver disease."
-        )
-    ]
+    findings: List[ClinicalFinding] = exam.findings or []
+    measurements: List[BiomechanicalMeasurement] = exam.measurements or []
 
-    has_high_tenderness = any("SEVERE" in (f.severity or "") for f in (exam.findings or []))
-    if has_high_tenderness or "SPRAIN" in region_id or "TEAR" in region_id or "TENDON" in region_id or "FRACTURE" in region_id:
+    # 1. Synthesize patient-reported symptoms & severities
+    finding_texts = " ".join([f"{f.title or ''} {f.description or ''}" for f in findings]).lower()
+    has_high_tenderness = any(f.severity in ["CRITICAL", "SEVERE"] for f in findings)
+    
+    has_radiating_neuropathy = any(
+        kw in finding_texts 
+        for kw in ["tingling", "pins and needles", "numbness", "electric", "shooting", "sciatica", "median nerve", "carpal tunnel", "झुनझुनी", "सुन्न"]
+    ) or ("NERVE" in innervation.upper() and ("RADIAL" in innervation.upper() or "MEDIAN" in innervation.upper() or "SCIATIC" in innervation.upper()))
+    
+    has_acute_spasm = any(
+        kw in finding_texts 
+        for kw in ["spasm", "cramp", "locked", "stiffness", "paraspinal", "जकड़न", "ऐंठन"]
+    ) or "SPINE" in region_id or "BACK" in region_id or "NECK" in region_id or "CALF" in region_id
+    
+    has_swelling_effusion = any(
+        kw in finding_texts 
+        for kw in ["swelling", "effusion", "edema", "warmth", "fluid", "सूजन"]
+    )
+    
+    has_fever = any(
+        kw in finding_texts 
+        for kw in ["fever", "temperature", "chills", "typhoid", "dengue", "malaria", "बुखार", "ठंड"]
+    )
+    
+    has_gout = any(
+        kw in finding_texts 
+        for kw in ["uric", "gout", "great toe", "podagra", "crystals", "यूरिक एसिड", "गाउट"]
+    ) or "TOE" in region_id
+    
+    has_gi = any(
+        kw in finding_texts 
+        for kw in ["diarrhea", "loose", "dysentery", "vomiting", "nausea", "abdomen", "stomach", "colic", "दस्त", "उल्टी", "पेचिश"]
+    ) or "ABDOMEN" in region_id or "STOMACH" in region_id
+    
+    has_respiratory = any(
+        kw in finding_texts 
+        for kw in ["cough", "phlegm", "asthma", "breathless", "wheeze", "smoke", "खांसी", "दमा", "बलगम"]
+    ) or "CHEST" in region_id or "LUNG" in region_id
+    
+    has_skin = any(
+        kw in finding_texts 
+        for kw in ["fungal", "ringworm", "tinea", "scabies", "itch", "rash", "wound", "boil", "दाद", "खाज", "खुजली"]
+    ) or "SKIN" in region_id
+
+    # 2. Analyze Objective Computer Vision Measurements
+    cv_rom_deficit = False
+    cv_severe_loss = False
+    if measurements:
+        m = measurements[0]
+        if "KNEE" in region_id and m.maximum_flexion_deg and m.maximum_flexion_deg < 95.0:
+            cv_severe_loss = True
+            has_swelling_effusion = True
+        elif "SHOULDER" in region_id and m.maximum_flexion_deg and m.maximum_flexion_deg < 90.0:
+            cv_severe_loss = True
+        elif m.terminal_extension_deg and m.terminal_extension_deg > 10.0:
+            cv_rom_deficit = True
+
+    # 3. Formulate Severity Grade & Diagnosis
+    if cv_severe_loss or has_high_tenderness:
+        severity_grade = "Moderate to Severe"
+    elif cv_rom_deficit or has_radiating_neuropathy:
+        severity_grade = "Moderate"
+    else:
+        severity_grade = "Mild to Moderate"
+
+    if has_gout:
+        clinical_diagnosis = f"{side.title()} {body_part_name} Acute Gouty Arthritis / Hyperuricemic Joint Inflammation"
+    elif has_radiating_neuropathy:
+        clinical_diagnosis = f"{side.title()} {body_part_name} Peripheral Neuropathy / Radiculopathy ({primary_muscle})"
+    elif has_acute_spasm:
+        clinical_diagnosis = f"{side.title()} {body_part_name} Acute Myofascial Strain with Paraspinal Muscular Spasm"
+    elif has_swelling_effusion:
+        clinical_diagnosis = f"{side.title()} {body_part_name} Joint Derangement with Reactive Synovial Effusion & Edema"
+    elif has_gi:
+        clinical_diagnosis = f"Acute Enteric Water-Borne Syndrome with {body_part_name} Abdominal Colic"
+    elif has_respiratory:
+        clinical_diagnosis = f"Reactive Bronchospastic Airway Irritation / Chulha Smoke Cough Syndrome"
+    elif has_skin:
+        clinical_diagnosis = f"{side.title()} {body_part_name} Fungal Dermatophytosis / Inflammatory Dermatosis"
+    else:
+        clinical_diagnosis = f"{side.title()} {body_part_name} Acute Mechanical Dysfunction & Strain ({primary_muscle})"
+
+    # 4. Automatically Prescribe Precise Medications (Purnea Regional Pharmacopeia)
+    meds: List[MedicationPrescription] = []
+
+    # (A) Primary Anti-inflammatory / Analgesic
+    if not has_gi:
         meds.append(
             MedicationPrescription(
-                name="Tab. Aceclofenac 100 mg + Serratiopeptidase 15 mg (Zerodol-SP)",
+                name="Tab. Zerodol-SP (Aceclofenac 100 mg + Paracetamol 325 mg + Serratiopeptidase 15 mg)",
                 form="Oral Tablet",
                 dosage="1 tablet",
-                frequency="Twice daily after meals (1-0-1)",
+                frequency="1 - 0 - 1 (Twice daily after meals / सुबह और रात - खाने के बाद)",
                 duration="5 days",
-                how_to_use="Take strictly after breakfast and dinner with plenty of water. Do not chew or crush. Take alongside Pantoprazole in the morning.",
-                precautions="Avoid in active peptic ulcer or severe kidney disease."
+                how_to_use="सुबह और रात खाना खाने के 15-20 मिनट बाद गुनगुने पानी से पूरा निगलें। खाली पेट कभी न लें। साथ में सुबह Pan-40 गैस की गोली जरूर लें।",
+                precautions="पेट में अल्सर, सीने में तेज जलन या गुर्दे की गंभीर बीमारी में न लें।"
+            )
+        )
+
+    # (B) Gastric Protection (Pan-40 / Pan-D)
+    if has_gi:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Pan-D (Pantoprazole 40 mg + Domperidone 30 mg SR)",
+                form="Oral Capsule",
+                dosage="1 capsule",
+                frequency="1 - 0 - 0 (Once daily 30 mins before breakfast / सुबह खाली पेट)",
+                duration="7 days",
+                how_to_use="सुबह नाश्ते से 30 मिनट पहले खाली पेट 1 कैप्सूल पानी से लें। उल्टी जैसा लगना व गैस रोकता है।",
+                precautions="कैप्सूल को खोलें या चबाएं नहीं; पूरा निगलें।"
+            )
+        )
+    else:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Pan-40 (Pantoprazole 40 mg)",
+                form="Oral Tablet",
+                dosage="1 tablet (40 mg)",
+                frequency="1 - 0 - 0 (Once daily before breakfast / सुबह खाली पेट)",
+                duration="5 days",
+                how_to_use="सुबह उठकर सबसे पहले खाली पेट आधा गिलास सादे पानी के साथ पूरा निगल लें। चबाएं या तोड़ें नहीं।",
+                precautions="दर्द की दवाओं के कारण होने वाले गैस्ट्रिक अल्सर से पेट की रक्षा करता है।"
+            )
+        )
+
+    # (C) Topical Pain Relief Gel (for musculoskeletal regions)
+    if not has_gi and not has_respiratory and not has_skin:
+        meds.append(
+            MedicationPrescription(
+                name="Dynapar / Volini Gel (Diclofenac Diethylamine 1.16% + Menthol)",
+                form="Topical Gel",
+                dosage="Apply thin ribbon (2-3 cm)",
+                frequency="3 to 4 times daily (दिन में 3-4 बार हल्के हाथ से)",
+                duration="7 days",
+                how_to_use="दर्द वाली जगह पर 2-3 सेमी जेल लगाकर हल्के हाथ से गोल-गोल घुमाएं जब तक जेल सूख न जाए। जोर से मालिश न करें और पट्टी न बांधें। लगाने के बाद हाथ साबुन से धोएं।",
+                precautions="कटी-फटी त्वचा, आंख और मुंह के संपर्क से बचाएं।"
+            )
+        )
+
+    # (D) Muscle Relaxant (for spasms, back, spine, calf, neck)
+    if has_acute_spasm or has_high_tenderness:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Myoril 4 mg (Thiocolchicoside 4 mg)",
+                form="Oral Capsule",
+                dosage="1 capsule (4 mg)",
+                frequency="1 - 0 - 1 (Twice daily after meals / सुबह और रात खाने के बाद)",
+                duration="3 to 5 days",
+                how_to_use="खाने के बाद सादे पानी से लें। यह जकड़ी हुई मांसपेशियों को ढीला करके दर्द में राहत देती है।",
+                precautions="हल्की नींद आ सकती है। दवा लेने के बाद भारी मशीनरी या वाहन न चलाएं।"
+            )
+        )
+
+    # (E) Neuropathy / Sciatica / Nerve Nourishment
+    if has_radiating_neuropathy:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Pregeb-M / Maxgalin-M (Pregabalin 75 mg + Methylcobalamin 750 mcg)",
+                form="Oral Capsule",
+                dosage="1 capsule",
+                frequency="0 - 0 - 1 (Once daily at bedtime / रात को सोते समय)",
+                duration="15 to 30 days",
+                how_to_use="रात को खाना खाने के बाद सोने से ठीक पहले 1 कैप्सूल लें। नसों की सूजन ठीक करने और नसों को पोषण देने में मददगार है।",
+                precautions="शुरुआत में चक्कर या सुस्ती आ सकती है, इसलिए केवल रात को ही लें।"
+            )
+        )
+
+    # (F) Severe Effusion / Edema Resolution (Chymoral Forte)
+    if has_swelling_effusion or cv_severe_loss:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Chymoral Forte (Trypsin-Chymotrypsin 100,000 Armour Units)",
+                form="Oral Tablet",
+                dosage="1 tablet",
+                frequency="1 - 0 - 1 (Twice daily 30 mins before meals / खाने से 30 मिनट पहले)",
+                duration="5 to 7 days",
+                how_to_use="खाना खाने से आधा घंटा पहले सादे पानी से पूरा निगलें। यह चोट व जोड़ में जमे हुए रक्त और सूजन को तेजी से घोलता है।",
+                precautions="रक्तस्राव (ब्लडिंग डिसऑर्डर) के मरीज डॉक्टर की निगरानी में लें।"
+            )
+        )
+
+    # (G) High Uric Acid / Gout
+    if has_gout:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Febutaz 40 / Feburic 40 (Febuxostat 40 mg)",
+                form="Oral Tablet",
+                dosage="1 tablet (40 mg)",
+                frequency="1 - 0 - 0 (Once daily after breakfast / सुबह नाश्ते के बाद)",
+                duration="30 days",
+                how_to_use="रोज सुबह नाश्ते के बाद 1 गोली पानी से लें। खून में यूरिक एसिड कम करती है। साथ में दिन में 3-4 लीटर पानी पिएं।",
+                precautions="दाल, पालक, मशरूम और रेड मीट का सेवन कम करें।"
+            )
+        )
+
+    # (H) Breakthrough Pain / Fever
+    if has_high_tenderness or has_fever:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Dolo 650 mg (Paracetamol 650 mg)",
+                form="Oral Tablet",
+                dosage="1 tablet (650 mg)",
+                frequency="SOS (जब तेज दर्द या बुखार हो, जरूरत पड़ने पर)",
+                duration="As needed (3-5 days)",
+                how_to_use="खाने के बाद सादे पानी से लें। दो खुराक के बीच कम से कम 6 घंटे का अंतर रखें। 24 घंटे में 3 से अधिक गोली न लें।",
+                precautions="शराब के साथ या अन्य पैरासिटामोल वाली दवा के साथ न लें।"
+            )
+        )
+
+    # (I) Bone & Joint Support (Age >= 40 or Spine / Knee)
+    if (age >= 40 or "KNEE" in region_id or "SPINE" in region_id) and not has_gi:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Shelcal-500 (Calcium 500 mg + Vitamin D3 250 IU)",
+                form="Oral Tablet",
+                dosage="1 tablet",
+                frequency="0 - 1 - 0 (Once daily after lunch / दोपहर खाने के बाद)",
+                duration="30 days",
+                how_to_use="दोपहर का भोजन करने के तुरंत बाद 1 गिलास पानी के साथ लें। हड्डियों को मजबूत करता है।",
+                precautions="आयरन (खून) की गोली के साथ न लें; दोनों में कम से कम 2-3 घंटे का अंतर रखें।"
             )
         )
         meds.append(
             MedicationPrescription(
-                name="Tab. Pantoprazole 40 mg (Pan-40)",
-                form="Oral Tablet",
-                dosage="1 tablet (40 mg)",
-                frequency="Once daily before breakfast (1-0-0)",
-                duration="5 days",
-                how_to_use="Take 30 minutes before breakfast in the morning with half a glass of water on an empty stomach.",
-                precautions="Swallow whole; do not crush."
+                name="Sachet Calcirol 60,000 IU (Cholecalciferol / Vitamin D3)",
+                form="Sachet / Powder",
+                dosage="1 sachet (60,000 IU)",
+                frequency="हफ्ते में 1 बार (Every Sunday with warm milk / हर रविवार दूध के साथ)",
+                duration="6 to 8 weeks",
+                how_to_use="1 गिलास गुनगुने दूध में 1 पूरा पाउच अच्छी तरह घोलकर हफ्ते में केवल एक बार पिएं।",
+                precautions="रोजाना बिल्कुल न लें, हफ्ते में सिर्फ एक निश्चित दिन ही लें।"
             )
         )
 
-    # 2. Targeted Rehabilitation & Physical Therapy Exercises
+    # (J) Gastrointestinal Protocol
+    if has_gi:
+        meds.append(
+            MedicationPrescription(
+                name="Electral Sachet (WHO Formula Oral Rehydration Salts - ORS 20.5g)",
+                form="Sachet / Powder",
+                dosage="1 sachet in 1 liter clean drinking water",
+                frequency="दिन भर में 1 से 2 लीटर (हर दस्त व उल्टी के बाद 1 बड़ा गिलास)",
+                duration="2 to 3 days",
+                how_to_use="1 पूरा पैकेट ठीक 1 लीटर उबले व ठंडे किए गए पानी में घोलें। 24 घंटे के अंदर थोड़ा-थोड़ा पिएं।",
+                precautions="आधा पैकेट पानी में न घोलें, हमेशा पूरे 1 लीटर पानी में ही घोलें।"
+            )
+        )
+        meds.append(
+            MedicationPrescription(
+                name="Tab. O2 / Zenflox-OZ (Ofloxacin 200 mg + Ornidazole 500 mg)",
+                form="Oral Tablet",
+                dosage="1 tablet",
+                frequency="1 - 0 - 1 (Twice daily after meals / सुबह और रात खाने के बाद)",
+                duration="5 days",
+                how_to_use="सुबह और रात खाना खाने के बाद पानी से लें। 5 दिन का कोर्स पूरा करें।",
+                precautions="मुंह का स्वाद कड़वा हो सकता है, चिंता न करें।"
+            )
+        )
+
+    # (K) Respiratory Protocol
+    if has_respiratory:
+        meds.append(
+            MedicationPrescription(
+                name="Syrup Ascoril-LS / Asthakind-LS (Levosalbutamol + Ambroxol + Guaiphenesin)",
+                form="Cough Syrup",
+                dosage="10 ml (2 चम्मच)",
+                frequency="1 - 1 - 1 (Three times daily with lukewarm water / दिन में 3 बार)",
+                duration="5 days",
+                how_to_use="खाना खाने के बाद 2 चम्मच सिरप पिएं और ऊपर से 2 घूंट गुनगुना पानी पिएं। यह बलगम को पतला कर आसानी से निकालता है।",
+                precautions="हल्की घबराहट या हाथ कांपना हो सकता है।"
+            )
+        )
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Montair-LC (Montelukast 10 mg + Levocetirizine 5 mg)",
+                form="Oral Tablet",
+                dosage="1 tablet",
+                frequency="0 - 0 - 1 (Once daily at bedtime / रात को सोते समय)",
+                duration="7 to 10 days",
+                how_to_use="रात को खाना खाने के बाद पानी से 1 गोली लें। यह सांस की नली की सूजन को शांत करती है।",
+                precautions="सुस्ती आ सकती है, इसलिए केवल रात को ही लें।"
+            )
+        )
+
+    # (L) Dermatological Fungal Protocol
+    if has_skin:
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Candiforce 200 (Itraconazole 200 mg)",
+                form="Oral Capsule",
+                dosage="1 capsule (200 mg)",
+                frequency="1 - 0 - 0 (Once daily with heavy meal / दोपहर भोजन बाद)",
+                duration="14 to 21 days",
+                how_to_use="दोपहर या रात के भारी भोजन के तुरंत बाद पानी से लें (खाली पेट दवा नहीं सोखी जाती)।",
+                precautions="कोर्स बीच में न छोड़ें। शराब से परहेज रखें।"
+            )
+        )
+        meds.append(
+            MedicationPrescription(
+                name="Luliconazole 1% Cream (Lulifin / Lulican Cream)",
+                form="Topical Cream",
+                dosage="Apply thin layer",
+                frequency="दिन में 1 से 2 बार प्रभावित हिस्से पर लगाएं",
+                duration="14 days",
+                how_to_use="दाद वाली जगह को साबुन-पानी से धोकर अच्छी तरह सुखा लें, फिर दाद के निशान से 1 सेमी बाहर तक हल्की परत लगाएं।",
+                precautions="स्टेरॉयड वाली मिक्स क्रीम कभी न लगाएं।"
+            )
+        )
+
+    # 5. Targeted Rehabilitation & Physical Therapy Exercises
     if "KNEE" in region_id or "THIGH" in region_id:
         exercises = [
             ExercisePrescription(
@@ -242,9 +518,9 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
         ]
 
     return FinalPrescription(
-        clinical_diagnosis=f"{body_part_name} Acute Strain / Mechanical Dysfunction ({tissue_name})",
+        clinical_diagnosis=clinical_diagnosis,
         affected_body_part=body_part_name,
-        severity_grade="Moderate" if has_high_tenderness else "Mild to Moderate",
+        severity_grade=severity_grade,
         medications=meds,
         exercises=exercises,
         home_care_measures=[
@@ -319,7 +595,13 @@ def build_structured_report(exam: Examination) -> StructuredClinicalReport:
             "directive": "IMMEDIATE CLINICIAN ESCALATION MANDATED. Halt provocative active movements. Arrange emergency imaging/specialist consultation."
         }
 
-    prescription = build_prescription_for_exam(exam)
+    if getattr(exam, "custom_prescription", None):
+        try:
+            prescription = FinalPrescription(**exam.custom_prescription)
+        except Exception:
+            prescription = build_prescription_for_exam(exam)
+    else:
+        prescription = build_prescription_for_exam(exam)
 
     return StructuredClinicalReport(
         examination_id=exam.id,

@@ -24,6 +24,7 @@ class Examination(Base):
     # Arbitrary 3D Point Selection & Clinical Intelligence
     selected_point = Column(JSON, nullable=True) # {x: float, y: float, z: float}
     point_analysis = Column(JSON, nullable=True) # Comprehensive anatomical structures & clinical decisions
+    custom_prescription = Column(JSON, nullable=True) # Clinician-authored/edited medical & exercise prescription
     
     # Anatomical region selected on 3D wireframe mesh
     selected_region = Column(String(64), nullable=False, default="RIGHT_KNEE")

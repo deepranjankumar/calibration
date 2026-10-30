@@ -15,7 +15,8 @@ from app.schemas.examination import (
     StructuredClinicalReport,
     ClinicianSignOffRequest,
     PatientCalibrationResponse,
-    AnalyzePointRequest
+    AnalyzePointRequest,
+    FinalPrescription
 )
 from app.services.engine import ExaminationWorkflowEngine
 from app.services.report_generator import build_structured_report
@@ -156,6 +157,18 @@ def create_examination(payload: ExaminationCreate, db: Session = Depends(get_db)
     )
     return _format_exam_response(exam)
 
+@router.get("/purnea-formulary")
+def get_regional_purnea_formulary(
+    category: Optional[str] = None,
+    search: Optional[str] = None
+):
+    """
+    Returns the comprehensive regional medical formulary for Bihar / Purnea district,
+    covering 55 evidence-based medications across 8 regional disease groups.
+    """
+    from app.services.regional_formulary import get_purnea_formulary
+    return get_purnea_formulary(category=category, search=search)
+
 @router.get("/{exam_id}", response_model=ExaminationDetailResponse)
 def get_examination(exam_id: str, db: Session = Depends(get_db)):
     engine = ExaminationWorkflowEngine(db)
@@ -267,3 +280,23 @@ def clinician_sign_off(
         "license": payload.clinician_license,
         "timestamp": exam.updated_at
     }
+
+@router.put("/{exam_id}/prescription", response_model=FinalPrescription)
+def update_examination_prescription(
+    exam_id: str,
+    payload: FinalPrescription,
+    db: Session = Depends(get_db)
+):
+    """
+    Saves and updates the clinician-customized prescription
+    (medications with dosage/frequencies/instructions, and exercises with reps/sets).
+    """
+    engine = ExaminationWorkflowEngine(db)
+    exam = engine.get_examination(exam_id)
+    if not exam:
+        raise HTTPException(status_code=404, detail="Examination not found")
+
+    exam.custom_prescription = payload.model_dump(mode="json") if hasattr(payload, "model_dump") else json.loads(payload.json())
+    db.commit()
+    db.refresh(exam)
+    return payload

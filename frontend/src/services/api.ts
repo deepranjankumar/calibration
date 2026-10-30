@@ -1,4 +1,4 @@
-import type { Examination, StructuredClinicalReport, PatientCalibration, Point3D, PointAnalysis } from '../types/examination';
+import type { Examination, StructuredClinicalReport, PatientCalibration, Point3D, PointAnalysis, FinalPrescription } from '../types/examination';
 
 const API_BASE = 'http://localhost:8000/api/v1';
 
@@ -157,6 +157,22 @@ export async function signOffReport(
   });
   if (!response.ok) {
     throw new Error(`Failed to sign off report: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function updatePrescription(
+  examId: string,
+  prescription: FinalPrescription
+): Promise<FinalPrescription> {
+  const response = await fetch(`${API_BASE}/examinations/${examId}/prescription`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(prescription),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update prescription' }));
+    throw new Error(parseApiError(err, 'Failed to update prescription'));
   }
   return response.json();
 }

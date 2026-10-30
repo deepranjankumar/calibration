@@ -386,6 +386,14 @@ class ExaminationWorkflowEngine:
                     lines.append(f"Estimated Recovery Window: {rx.get('recovery_timeline')}")
 
             exam.clinical_summary = " ".join(lines)
+
+        # Automatically formulate & persist the AI-generated prescription
+        try:
+            from app.services.report_generator import build_prescription_for_exam
+            ai_rx = build_prescription_for_exam(exam)
+            exam.custom_prescription = ai_rx.model_dump(mode="json") if hasattr(ai_rx, "model_dump") else json.loads(ai_rx.json())
+        except Exception as rx_err:
+            logger.warning(f"Could not auto-persist synthesis prescription: {rx_err}")
         else:
             region_label = exam.selected_region.replace('_', ' ').title()
             lines = [
@@ -405,3 +413,11 @@ class ExaminationWorkflowEngine:
                 )
 
             exam.clinical_summary = " ".join(lines)
+
+        # Automatically formulate & persist the AI-generated prescription
+        try:
+            from app.services.report_generator import build_prescription_for_exam
+            ai_rx = build_prescription_for_exam(exam)
+            exam.custom_prescription = ai_rx.model_dump(mode="json") if hasattr(ai_rx, "model_dump") else json.loads(ai_rx.json())
+        except Exception as rx_err:
+            logger.warning(f"Could not auto-persist synthesis prescription: {rx_err}")

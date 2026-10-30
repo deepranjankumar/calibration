@@ -9,7 +9,10 @@ import type {
   BiomechanicalMeasurement,
   ClinicalFinding,
   PatientCalibration,
+  Point3D,
+  PointAnalysis,
 } from '../../types/examination';
+import { analyzeBodyPoint } from '../../services/api';
 import {
   RotateCcw,
   Eye,
@@ -36,6 +39,11 @@ interface BodyMeshViewerProps {
   findings?: ClinicalFinding[];
   isExamActive: boolean;
   patientCalibration?: PatientCalibration | null;
+  selectedPoint?: Point3D | null;
+  pointAnalysis?: PointAnalysis | null;
+  onSelectPoint?: (point: Point3D, analysis?: PointAnalysis) => void;
+  onStartPointExam?: (point: Point3D, analysis: PointAnalysis) => void;
+  onClearPoint?: () => void;
 }
 
 const BODY_CENTER: [number, number, number] = [0, -0.05, 0];
@@ -49,8 +57,51 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
   findings = [],
   isExamActive,
   patientCalibration,
+  selectedPoint,
+  pointAnalysis,
+  onSelectPoint,
+  onStartPointExam: _onStartPointExam,
+  onClearPoint,
 }) => {
   const controlsRef = useRef<OrbitControlsType>(null);
+
+  // Point Selection & Decision State
+  const [localPoint, setLocalPoint] = useState<Point3D | null>(null);
+  const [localAnalysis, setLocalAnalysis] = useState<PointAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+
+  const activePoint = selectedPoint !== undefined ? selectedPoint : localPoint;
+  const activeAnalysis = pointAnalysis !== undefined ? pointAnalysis : localAnalysis;
+
+  const handlePointSelect = async (pt: Point3D) => {
+    setLocalPoint(pt);
+    setIsAnalyzing(true);
+    try {
+      const analysis = await analyzeBodyPoint(
+        { x: pt.x, y: pt.y, z: pt.z },
+        pt.normal,
+        affectedSide
+      );
+      setLocalAnalysis(analysis);
+      if (onSelectPoint) {
+        onSelectPoint(pt, analysis);
+      }
+      setView(pt.x, pt.y, pt.z + 1.15, [pt.x, pt.y, pt.z]);
+    } catch (err) {
+      console.error('Point analysis failed:', err);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleClearPin = () => {
+    setLocalPoint(null);
+    setLocalAnalysis(null);
+    if (onClearPoint) {
+      onClearPoint();
+    }
+    setFullBodyView();
+  };
 
   // Motion replay state
   const [isPlayingMotion, setIsPlayingMotion] = useState(false);
@@ -115,6 +166,10 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
 
   const focusOnSelectedRegion = () => {
     if (!controlsRef.current) return;
+    if (activePoint) {
+      setView(activePoint.x, activePoint.y, activePoint.z + 1.15, [activePoint.x, activePoint.y, activePoint.z]);
+      return;
+    }
     if (!selectedRegion) {
       setFullBodyView();
       return;
@@ -175,7 +230,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
   const regionDisplayName = selectedRegion ? selectedRegion.replace(/_/g, ' ') : '';
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
+    <div className="relative w-full flex-1 min-h-[420px] flex flex-col bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
       {/* Top Header Controls & Camera Presets */}
       <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none gap-2">
         {/* Anatomical Status Badge */}
@@ -294,7 +349,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
       </div>
 
       {/* 3D WebGL Canvas */}
-      <div className="flex-1 w-full h-full">
+      <div className="relative flex-1 w-full min-h-0">
         <Canvas>
           <PerspectiveCamera makeDefault position={[0, 0.0, 3.2]} fov={40} />
           <ambientLight intensity={0.85} />
@@ -329,6 +384,8 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
                 measurements={measurements}
                 findings={findings}
                 isExamActive={isExamActive}
+                selectedPoint={activePoint}
+                onSelectPoint={handlePointSelect}
               />
             ) : (
               <DenseHumanMesh
@@ -338,6 +395,8 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
                 measurements={measurements}
                 findings={findings}
                 isExamActive={isExamActive}
+                selectedPoint={activePoint}
+                onSelectPoint={handlePointSelect}
               />
             )}
           </React.Suspense>
@@ -393,21 +452,44 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
         </button>
       </div>
 
-      {/* Operator Guidance Header HUD */}
-      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-        {!isExamActive ? (
-          <div className="bg-cyan-950/95 border-2 border-cyan-400 text-cyan-100 text-xs font-bold px-4 py-2 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-2 animate-bounce">
-            <Sparkles className="w-4 h-4 text-cyan-300 animate-pulse" />
-            <span>
-              {patientCalibration
-                ? "👈 CLICK PAINFUL LOCATION ON PATIENT'S CALIBRATED MESH TO START AI PROTOCOL"
-                : '👈 TAKE PATIENT PHOTO OR CLICK JOINT TO START AI EXAMINATION'}
+      {/* Sleek Top Status & Guidance Indicator (Unobtrusive) */}
+      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-10 pointer-events-auto">
+        {activePoint ? (
+          <div className="bg-slate-900/95 border border-cyan-500/80 text-cyan-200 text-xs px-3.5 py-1.5 rounded-full shadow-xl backdrop-blur-md flex items-center gap-2.5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            <span className="font-bold text-white">
+              {activeAnalysis?.display_name || 'Selected Point'}
             </span>
+            <span className="text-[10px] text-cyan-400 font-mono bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-800">
+              [{activePoint.x.toFixed(2)}, {activePoint.y.toFixed(2)}, {activePoint.z.toFixed(2)}]
+            </span>
+            {isAnalyzing ? (
+              <span className="text-[10px] text-amber-300 font-mono animate-pulse border-l border-slate-700 pl-2">
+                Analyzing Point Intelligence...
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-400 border-l border-slate-700 pl-2 hidden sm:inline">
+                Decisions & Protocol loaded in Left AI Panel
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleClearPin}
+              className="text-slate-400 hover:text-red-400 p-0.5 rounded transition-colors ml-1 cursor-pointer"
+              title="Clear Point Selection"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : !isExamActive ? (
+          <div className="bg-slate-900/90 border border-slate-700/80 text-slate-300 text-xs px-3.5 py-1.5 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Click any point on the 3D body (muscles, ribs, spine, limbs) to analyze & plan treatment</span>
           </div>
         ) : (
           <div className="bg-slate-900/90 border border-cyan-500/50 text-cyan-300 text-[11px] font-mono px-3.5 py-1.5 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold">ANATOMICAL REGION ACTIVE: {selectedRegion.replace('_', ' ')}</span>
+            <span className="font-bold">ANATOMICAL TARGET: {selectedRegion.replace(/_/g, ' ')}</span>
             <span className="text-slate-400">• Real-Time 3D Mesh Kinematics</span>
           </div>
         )}
@@ -467,12 +549,14 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
         <div className="bg-slate-900/90 border border-slate-700/80 rounded-xl p-2.5 backdrop-blur-md shadow-xl flex items-start gap-2.5">
           <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
           <div className="text-[11px] leading-tight text-slate-300">
-            <span className="font-semibold text-amber-400 uppercase tracking-wider block mb-0.5">
-              Patient-Calibrated Biomechanical Visualization
+            <span className="font-semibold text-amber-400 uppercase tracking-wider inline mr-1.5">
+              Patient-Calibrated Biomechanical Visualization:
             </span>
-            {patientCalibration
-              ? `Anatomical wireframe reconstructed from patient photo (Height: ~${patientCalibration.body_proportions.estimated_height_cm}cm, Shoulder: ${patientCalibration.body_proportions.shoulder_width_m}m). Joint kinematics analyzed via MediaPipe 1.x Pose.`
-              : 'Standardized anatomical wireframe. Joint angles and range-of-motion metrics are computed in real time from MediaPipe kinematic tracking.'}
+            <span>
+              {patientCalibration
+                ? `Anatomical wireframe reconstructed from patient photo (Height: ~${patientCalibration.body_proportions.estimated_height_cm}cm, Shoulder: ${patientCalibration.body_proportions.shoulder_width_m}m). Joint kinematics analyzed via MediaPipe 1.x Pose.`
+                : 'Standardized anatomical wireframe. Joint angles and range-of-motion metrics are computed in real time from MediaPipe kinematic tracking.'}
+            </span>
           </div>
         </div>
       </div>

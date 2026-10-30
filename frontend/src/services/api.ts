@@ -1,6 +1,42 @@
-import type { Examination, StructuredClinicalReport, PatientCalibration } from '../types/examination';
+import type { Examination, StructuredClinicalReport, PatientCalibration, Point3D, PointAnalysis } from '../types/examination';
 
 const API_BASE = 'http://localhost:8000/api/v1';
+
+function parseApiError(err: any, fallback: string): string {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  if (typeof err.detail === 'string') return err.detail;
+  if (Array.isArray(err.detail)) {
+    return err.detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join('; ');
+  }
+  if (typeof err.detail === 'object' && err.detail !== null) {
+    return JSON.stringify(err.detail);
+  }
+  if (err.message) return err.message;
+  return fallback;
+}
+
+export async function analyzeBodyPoint(
+  point: { x: number; y: number; z: number },
+  normal?: { x: number; y: number; z: number },
+  sideHint?: string
+): Promise<PointAnalysis> {
+  const response = await fetch(`${API_BASE}/examinations/analyze-point`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      point,
+      normal,
+      side_hint: sideHint,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to analyze 3D point' }));
+    throw new Error(parseApiError(err, 'Failed to analyze point'));
+  }
+  return response.json();
+}
 
 export async function calibratePatientMesh(
   photoFile?: File | null,
@@ -21,7 +57,7 @@ export async function calibratePatientMesh(
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: 'Patient photo calibration failed' }));
-    throw new Error(err.detail || 'Photo calibration failed');
+    throw new Error(parseApiError(err, 'Photo calibration failed'));
   }
   return response.json();
 }
@@ -35,6 +71,8 @@ export async function createExamination(data: {
   affected_side: string;
   patient_orientation?: string;
   patient_calibration?: PatientCalibration | null;
+  selected_point?: Point3D | null;
+  point_analysis?: PointAnalysis | null;
 }): Promise<Examination> {
   const response = await fetch(`${API_BASE}/examinations`, {
     method: 'POST',
@@ -43,7 +81,7 @@ export async function createExamination(data: {
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: 'Failed to create examination' }));
-    throw new Error(err.detail || 'Network error creating examination');
+    throw new Error(parseApiError(err, 'Network error creating examination'));
   }
   return response.json();
 }

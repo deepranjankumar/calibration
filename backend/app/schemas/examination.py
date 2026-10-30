@@ -9,9 +9,17 @@ class ExaminationCreate(BaseModel):
     patient_name: Optional[str] = "Anonymous Patient"
     patient_age: Optional[int] = 42
     patient_gender: Optional[str] = "Unspecified"
-    selected_region: str = Field(default="RIGHT_KNEE", description="Selected body region: RIGHT_KNEE, LEFT_KNEE, LUMBAR_SPINE, etc.")
+    selected_region: str = Field(default="RIGHT_KNEE", description="Selected body region: RIGHT_KNEE, LEFT_KNEE, LUMBAR_SPINE, or custom point region.")
     affected_side: str = Field(default="RIGHT", description="RIGHT, LEFT, or BILATERAL")
     patient_orientation: str = Field(default="SAGITTAL_RIGHT", description="Viewing profile")
+    patient_calibration: Optional[Dict[str, Any]] = None
+    selected_point: Optional[Dict[str, Any]] = None
+    point_analysis: Optional[Dict[str, Any]] = None
+
+class AnalyzePointRequest(BaseModel):
+    point: Dict[str, float] = Field(..., description="Exact 3D coordinates {x, y, z} clicked on the body mesh")
+    normal: Optional[Dict[str, float]] = Field(default=None, description="Surface normal vector {x, y, z}")
+    side_hint: Optional[str] = Field(default=None, description="Optional side override: RIGHT, LEFT, or BILATERAL")
     patient_calibration: Optional[Dict[str, Any]] = None
 
 class PatientCalibrationResponse(BaseModel):
@@ -119,6 +127,8 @@ class ExaminationDetailResponse(BaseModel):
     affected_side: str
     patient_orientation: str
     patient_calibration: Optional[Dict[str, Any]] = None
+    selected_point: Optional[Dict[str, Any]] = None
+    point_analysis: Optional[Dict[str, Any]] = None
     status: str
     protocol_name: str
     current_step_id: str
@@ -139,6 +149,38 @@ class ExaminationDetailResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# --- Prescription & Treatment Guidance ---
+
+class MedicationPrescription(BaseModel):
+    name: str
+    form: str  # e.g. "Oral Tablet", "Topical Gel", "Capsule"
+    dosage: str  # e.g. "650 mg", "1 tablet"
+    frequency: str  # e.g. "Twice daily after food (1-0-1)"
+    duration: str  # e.g. "5 days"
+    how_to_use: str  # e.g. "Take strictly after meals with water. Do not take on an empty stomach."
+    precautions: Optional[str] = None
+
+class ExercisePrescription(BaseModel):
+    name: str
+    target_area: str
+    sets_reps: str  # e.g. "3 sets of 10 repetitions"
+    frequency: str  # e.g. "Twice daily (Morning & Evening)"
+    how_to_perform: str  # Step-by-step instructions
+    hold_duration_sec: Optional[int] = 5
+    precautions: Optional[str] = None
+
+class FinalPrescription(BaseModel):
+    clinical_diagnosis: str
+    affected_body_part: str
+    severity_grade: str
+    medications: List[MedicationPrescription]
+    exercises: List[ExercisePrescription]
+    home_care_measures: List[str]
+    activity_modifications: List[str]
+    follow_up_advice: str
+    emergency_warning: str
+    prescribed_date: datetime
 
 # --- Structured Clinician Report ---
 
@@ -165,6 +207,9 @@ class StructuredClinicalReport(BaseModel):
     computer_vision_observations: List[ClinicalFindingSchema]
     objective_measurements: List[BiomechanicalMeasurementSchema]
     provisional_clinical_findings: List[ClinicalFindingSchema]
+    
+    # Final Prescription & Treatment Protocol
+    prescription: Optional[FinalPrescription] = None
     
     # Quality & Artifact Metrics
     computer_vision_quality_summary: Dict[str, Any]

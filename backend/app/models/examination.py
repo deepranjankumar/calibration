@@ -21,6 +21,10 @@ class Examination(Base):
     # Patient-specific 3D Mesh calibration (from photo)
     patient_calibration = Column(JSON, nullable=True)
     
+    # Arbitrary 3D Point Selection & Clinical Intelligence
+    selected_point = Column(JSON, nullable=True) # {x: float, y: float, z: float}
+    point_analysis = Column(JSON, nullable=True) # Comprehensive anatomical structures & clinical decisions
+    
     # Anatomical region selected on 3D wireframe mesh
     selected_region = Column(String(64), nullable=False, default="RIGHT_KNEE")
     specific_zone = Column(String(64), nullable=True) # e.g. "ANTERIOR_PATELLA", "MEDIAL_JOINT_LINE"

@@ -7,7 +7,7 @@ Write-Host "=======================================================" -Foreground
 $port8000 = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
 if (-not $port8000) {
     Write-Host "[1/2] Starting Python FastAPI Backend on port 8000..." -ForegroundColor Yellow
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot/backend'; python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    Start-Process powershell -ArgumentList "-ExecutionPolicy", "Bypass", "-NoExit", "-Command", "cd '$PSScriptRoot/backend'; python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 } else {
     Write-Host "[1/2] Backend server is already running on port 8000." -ForegroundColor Green
 }
@@ -16,17 +16,20 @@ if (-not $port8000) {
 $port5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
 if (-not $port5173) {
     Write-Host "[2/2] Starting React + Vite Frontend on port 5173..." -ForegroundColor Yellow
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot/frontend'; npm run dev"
+    # Use cmd.exe /c npm run dev to avoid Windows PowerShell ExecutionPolicy script blocking
+    Start-Process cmd.exe -ArgumentList "/k", "cd /d ""$PSScriptRoot\frontend"" && npm.cmd run dev"
 } else {
     Write-Host "[2/2] Frontend server is already running on port 5173." -ForegroundColor Green
 }
 
 # 3. Wait until both ports are listening before opening browser
 Write-Host "Waiting for servers to become ready..." -ForegroundColor Cyan
-for ($i = 0; $i -lt 15; $i++) {
+$ready = $false
+for ($i = 0; $i -lt 20; $i++) {
     $f = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
     $b = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
     if ($f -and $b) {
+        $ready = $true
         break
     }
     Start-Sleep -Seconds 1
@@ -35,8 +38,13 @@ for ($i = 0; $i -lt 15; $i++) {
 Start-Sleep -Milliseconds 800
 
 # 4. Open Default Browser
-Start-Process "http://localhost:5173"
-
-Write-Host "`nSystem is ready and running!" -ForegroundColor Green
-Write-Host "Frontend: http://localhost:5173" -ForegroundColor Yellow
-Write-Host "Backend:  http://localhost:8000 (API Docs: http://localhost:8000/docs)" -ForegroundColor Yellow
+if ($ready) {
+    Start-Process "http://localhost:5173"
+    Write-Host "`nSystem is ready and running!" -ForegroundColor Green
+    Write-Host "Frontend: http://localhost:5173" -ForegroundColor Yellow
+    Write-Host "Backend:  http://localhost:8000 (API Docs: http://localhost:8000/docs)" -ForegroundColor Yellow
+} else {
+    Write-Host "`nWarning: One of the services took longer than expected to start." -ForegroundColor Red
+    Write-Host "Please check the opened terminal windows for any startup error messages." -ForegroundColor Yellow
+    Write-Host "You can manually try navigating to http://localhost:5173" -ForegroundColor Cyan
+}

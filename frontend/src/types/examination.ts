@@ -122,6 +122,63 @@ export interface BiomechanicalMeasurement {
   calculated_at: string;
 }
 
+export interface Point3D {
+  x: number;
+  y: number;
+  z: number;
+  normal?: { x: number; y: number; z: number };
+}
+
+export interface PointAnalysis {
+  point: Point3D;
+  normal?: { x: number; y: number; z: number };
+  side: 'RIGHT' | 'LEFT' | 'BILATERAL';
+  aspect: string;
+  region_id: string;
+  display_name: string;
+  anatomical_structures: {
+    primary_muscle: string;
+    innervation: string;
+    tissue_type: string;
+    functional_role: string;
+  };
+  cloud_ai_insights?: {
+    model_used?: string;
+    differential_diagnosis?: string[];
+    clinical_pearl?: string;
+    targeted_treatment_insight?: string;
+    status?: string;
+  };
+  clinical_decisions: {
+    red_flags: {
+      condition: string;
+      question_en: string;
+      question_hi: string;
+      alert_reason: string;
+      urgency: string;
+    };
+    diagnostic_questions: Array<{
+      id: string;
+      prompt_en: string;
+      prompt_hi?: string;
+    }>;
+    recommended_tests: Array<{
+      test_id: string;
+      title: string;
+      instruction_en: string;
+      instruction_hi?: string;
+      action_type: StepActionType;
+      target_joint?: string;
+    }>;
+    treatment_plan: {
+      phase1_acute: string;
+      phase2_rehab: string[] | string;
+      phase3_medical: string;
+      recovery_timeline?: string;
+    };
+  };
+}
+
 export interface ClinicalFinding {
   id: string;
   source_category: 'PATIENT_REPORTED' | 'CV_OBSERVATION' | 'CALCULATED_MEASUREMENT' | 'RED_FLAG_ALERT' | 'CLINICIAN_CONFIRMED';
@@ -162,6 +219,41 @@ export interface Examination {
   findings: ClinicalFinding[];
   measurements: BiomechanicalMeasurement[];
   patient_calibration?: PatientCalibration | null;
+  selected_point?: Point3D | null;
+  point_analysis?: PointAnalysis | null;
+}
+
+export interface MedicationPrescription {
+  name: string;
+  form: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  how_to_use: string;
+  precautions?: string | null;
+}
+
+export interface ExercisePrescription {
+  name: string;
+  target_area: string;
+  sets_reps: string;
+  frequency: string;
+  how_to_perform: string;
+  hold_duration_sec?: number;
+  precautions?: string | null;
+}
+
+export interface FinalPrescription {
+  clinical_diagnosis: string;
+  affected_body_part: string;
+  severity_grade: string;
+  medications: MedicationPrescription[];
+  exercises: ExercisePrescription[];
+  home_care_measures: string[];
+  activity_modifications: string[];
+  follow_up_advice: string;
+  emergency_warning: string;
+  prescribed_date: string;
 }
 
 export interface StructuredClinicalReport {
@@ -193,6 +285,7 @@ export interface StructuredClinicalReport {
   computer_vision_observations: ClinicalFinding[];
   objective_measurements: BiomechanicalMeasurement[];
   provisional_clinical_findings: ClinicalFinding[];
+  prescription?: FinalPrescription | null;
   computer_vision_quality_summary: {
     overall_status: string;
     mean_tracking_confidence: string;

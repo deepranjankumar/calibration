@@ -3,7 +3,7 @@ import { BodyMeshViewer } from './components/ThreeBodyMesh/BodyMeshViewer';
 import { AIWorkflowPanel } from './components/AIWorkflow/AIWorkflowPanel';
 import { BiomechanicalPanel } from './components/BiomechanicalAnalytics/BiomechanicalPanel';
 import { ClinicalReportModal } from './components/ClinicalReport/ClinicalReportModal';
-import type { Examination, PatientCalibration } from './types/examination';
+import type { Examination, PatientCalibration, Point3D, PointAnalysis } from './types/examination';
 import {
   createExamination,
   submitStepJson,
@@ -22,6 +22,8 @@ export const App: React.FC = () => {
   const [affectedSide, setAffectedSide] = useState<'RIGHT' | 'LEFT'>('RIGHT');
   const [examination, setExamination] = useState<Examination | null>(null);
   const [patientCalibration, setPatientCalibration] = useState<PatientCalibration | null>(null);
+  const [selectedPoint, setSelectedPoint] = useState<Point3D | null>(null);
+  const [pointAnalysis, setPointAnalysis] = useState<PointAnalysis | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
@@ -32,9 +34,14 @@ export const App: React.FC = () => {
     patient_gender: string;
     selected_region: string;
     affected_side: 'RIGHT' | 'LEFT';
+    selected_point?: Point3D | null;
+    point_analysis?: PointAnalysis | null;
   }) => {
     setIsSubmitting(true);
     try {
+      const pointToUse = data.selected_point !== undefined ? data.selected_point : selectedPoint;
+      const analysisToUse = data.point_analysis !== undefined ? data.point_analysis : pointAnalysis;
+
       const newExam = await createExamination({
         patient_id: data.patient_id,
         patient_name: data.patient_name,
@@ -43,10 +50,14 @@ export const App: React.FC = () => {
         selected_region: data.selected_region,
         affected_side: data.affected_side,
         patient_calibration: patientCalibration,
+        selected_point: pointToUse,
+        point_analysis: analysisToUse,
       });
       setExamination(newExam);
       setSelectedRegion(data.selected_region);
       setAffectedSide(data.affected_side);
+      if (newExam.selected_point) setSelectedPoint(newExam.selected_point);
+      if (newExam.point_analysis) setPointAnalysis(newExam.point_analysis);
     } catch (err: any) {
       alert(`Error starting examination: ${err.message}`);
     } finally {
@@ -143,6 +154,8 @@ export const App: React.FC = () => {
       setSelectedRegion('');
       setAffectedSide('RIGHT');
       setPatientCalibration(null);
+      setSelectedPoint(null);
+      setPointAnalysis(null);
     }
   };
 
@@ -238,6 +251,12 @@ export const App: React.FC = () => {
             selectedRegion={selectedRegion}
             affectedSide={affectedSide}
             onSelectRegion={handleSelectRegionAndStart}
+            selectedPoint={selectedPoint || examination?.selected_point}
+            pointAnalysis={pointAnalysis || examination?.point_analysis}
+            onClearPoint={() => {
+              setSelectedPoint(null);
+              setPointAnalysis(null);
+            }}
           />
         </div>
 
@@ -253,6 +272,34 @@ export const App: React.FC = () => {
               findings={examination?.findings || []}
               isExamActive={Boolean(examination && examination.status === 'ACTIVE')}
               patientCalibration={effectiveCalibration}
+              selectedPoint={selectedPoint || examination?.selected_point}
+              pointAnalysis={pointAnalysis || examination?.point_analysis}
+              onSelectPoint={(pt, analysis) => {
+                setSelectedPoint(pt);
+                if (analysis) {
+                  setPointAnalysis(analysis);
+                  setSelectedRegion(analysis.region_id);
+                  setAffectedSide(analysis.side === 'BILATERAL' ? 'RIGHT' : analysis.side);
+                }
+              }}
+              onStartPointExam={async (pt, analysis) => {
+                setSelectedPoint(pt);
+                setPointAnalysis(analysis);
+                await handleStartExam({
+                  patient_id: 'PT-4821',
+                  patient_name: 'John Doe',
+                  patient_age: 48,
+                  patient_gender: 'Male',
+                  selected_region: analysis.region_id,
+                  affected_side: analysis.side === 'BILATERAL' ? 'RIGHT' : analysis.side,
+                  selected_point: pt,
+                  point_analysis: analysis,
+                });
+              }}
+              onClearPoint={() => {
+                setSelectedPoint(null);
+                setPointAnalysis(null);
+              }}
             />
           </div>
 

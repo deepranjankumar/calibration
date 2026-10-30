@@ -14,10 +14,12 @@ from app.schemas.examination import (
     StepSubmissionRequest,
     StructuredClinicalReport,
     ClinicianSignOffRequest,
-    PatientCalibrationResponse
+    PatientCalibrationResponse,
+    AnalyzePointRequest
 )
 from app.services.engine import ExaminationWorkflowEngine
 from app.services.report_generator import build_structured_report
+from app.services.point_intelligence import point_analyzer
 from app.protocols.knee_protocol import KNEE_EXAMINATION_PROTOCOL
 from app.vision.pose_tracker import pose_analyzer
 from app.config import settings
@@ -37,6 +39,8 @@ def _format_exam_response(exam) -> dict:
         "affected_side": exam.affected_side,
         "patient_orientation": exam.patient_orientation,
         "patient_calibration": getattr(exam, "patient_calibration", None),
+        "selected_point": getattr(exam, "selected_point", None),
+        "point_analysis": getattr(exam, "point_analysis", None),
         "status": exam.status,
         "protocol_name": exam.protocol_name,
         "current_step_id": exam.current_step_id,
@@ -118,11 +122,24 @@ async def calibrate_patient_mesh(
         "detected_body_part": calibration_result.get("detected_body_part")
     }
 
+@router.post("/analyze-point")
+def analyze_body_point(payload: AnalyzePointRequest):
+    """
+    Analyzes any clicked 3D point on the patient body mesh.
+    Identifies exact anatomical structures, tissues, nerves,
+    and formulates targeted questions, recommended tests, and treatment plans.
+    """
+    return point_analyzer.analyze_point(
+        point=payload.point,
+        normal=payload.normal,
+        side_hint=payload.side_hint
+    )
+
 @router.post("", response_model=ExaminationDetailResponse)
 def create_examination(payload: ExaminationCreate, db: Session = Depends(get_db)):
     """
     Step 1 of Workflow: Initiates an AI-controlled physical examination session
-    with the selected painful anatomical region (e.g., RIGHT_KNEE, LEFT_KNEE).
+    with the selected painful anatomical region or arbitrary pinpointed 3D coordinate.
     """
     engine = ExaminationWorkflowEngine(db)
     exam = engine.initialize_examination(
@@ -133,7 +150,9 @@ def create_examination(payload: ExaminationCreate, db: Session = Depends(get_db)
         selected_region=payload.selected_region,
         affected_side=payload.affected_side,
         patient_orientation=payload.patient_orientation,
-        patient_calibration=payload.patient_calibration
+        patient_calibration=payload.patient_calibration,
+        selected_point=payload.selected_point,
+        point_analysis=payload.point_analysis
     )
     return _format_exam_response(exam)
 

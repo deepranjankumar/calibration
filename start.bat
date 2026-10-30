@@ -1,28 +1,22 @@
 @echo off
-title AI-Driven Physical Examination System Launcher
+title Physical Examination System Launcher
 echo =======================================================
 echo Starting AI-Driven Physical Examination System...
 echo =======================================================
 
-echo.
-echo [1/2] Starting Python FastAPI Backend on http://localhost:8000...
-start "Backend - FastAPI" cmd /k "cd /d %~dp0backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+echo [1/2] Starting Python FastAPI Backend on port 8000...
+start "Physical Exam Backend" cmd /k "cd /d "%~dp0backend" && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
-echo.
-echo [2/2] Starting React + Three.js Frontend on http://localhost:5173...
-start "Frontend - Vite React" cmd /k "cd /d %~dp0frontend && npm run dev"
+echo [2/2] Starting React + Vite Frontend on port 5173...
+start "Physical Exam Frontend" cmd /k "cd /d "%~dp0frontend" && npm.cmd run dev"
 
-echo.
 echo Waiting for servers to initialize...
-timeout /t 5 >nul
+timeout /t 5 /nobreak > nul
 
-echo Opening web application in your default browser...
 start http://localhost:5173
 
 echo.
+echo System started successfully!
+echo Frontend: http://localhost:5173
+echo Backend:  http://localhost:8000
 echo =======================================================
-echo System is running!
-echo - Frontend: http://localhost:5173
-echo - Backend:  http://localhost:8000 (API Docs: /docs)
-echo =======================================================
-pause

@@ -29,10 +29,19 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     try:
         with engine.connect() as conn:
-            result = conn.execute(text("PRAGMA table_info(examination_steps);")).fetchall()
-            columns = [r[1] for r in result]
-            if "patient_question_hi" not in columns:
+            # Migration check for examination_steps
+            res_steps = conn.execute(text("PRAGMA table_info(examination_steps);")).fetchall()
+            cols_steps = [r[1] for r in res_steps]
+            if "patient_question_hi" not in cols_steps:
                 conn.execute(text("ALTER TABLE examination_steps ADD COLUMN patient_question_hi TEXT;"))
-                conn.commit()
-    except Exception:
-        pass
+
+            # Migration check for examinations
+            res_exams = conn.execute(text("PRAGMA table_info(examinations);")).fetchall()
+            cols_exams = [r[1] for r in res_exams]
+            if "selected_point" not in cols_exams:
+                conn.execute(text("ALTER TABLE examinations ADD COLUMN selected_point JSON;"))
+            if "point_analysis" not in cols_exams:
+                conn.execute(text("ALTER TABLE examinations ADD COLUMN point_analysis JSON;"))
+            conn.commit()
+    except Exception as e:
+        print(f"[init_db] Migration notice: {e}")

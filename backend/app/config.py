@@ -3,6 +3,23 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
+
+# Load .env from project root if present
+root_env_path = PROJECT_ROOT / ".env"
+if root_env_path.exists():
+    try:
+        with open(root_env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k:
+                        os.environ.setdefault(k, v)
+    except Exception as e:
+        print(f"[config] Notice: Could not read .env: {e}")
 
 @dataclass
 class Settings:
@@ -34,6 +51,14 @@ class Settings:
     # Clinical limits & thresholds
     MIN_CONFIDENCE_THRESHOLD: float = 0.55
     CRITICAL_CONFIDENCE_WARNING: float = 0.40
+
+    # Ollama Cloud LLM Configuration
+    OLLAMA_CLOUD_API: str = os.getenv(
+        "OLLAMA_CLOUD_API",
+        "158766c54d1e411aa1fa9e2628d07036.LpApsQ-rnBlYANE0qD1nKPdh"
+    )
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "https://ollama.com")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "nemotron-3-nano:30b")
 
     # AI Model Key
     AI_API_KEY: str = os.getenv("AI_API_KEY", "972008f37d754beb89ed92cd1d675a7a.dQAJ0eTAUvnOl44xX2diGvl1")

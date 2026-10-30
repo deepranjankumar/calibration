@@ -85,9 +85,12 @@ html, body, #root {
 
 .mesh-canvas-wrapper {
   flex: 1;
-  min-height: 0;
+  min-height: 420px;
+  height: 100%;
   width: 100%;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .telemetry-bar-wrapper {
@@ -388,4 +391,99 @@ html, body, #root {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #0ea5e9;
+}
+
+/* ============================================================== */
+/* OFFICIAL MEDICAL PRESCRIPTION PRINT STYLES (A4 Clinical Pad)   */
+/* ============================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm 15mm 15mm;
+  }
+
+  body, html, #root {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Hide app shell and navigation elements */
+  .exam-header,
+  .exam-left-panel,
+  .exam-right-panel,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Make modal take natural printable page flow */
+  .print-modal-window {
+    position: static !important;
+    max-height: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+  }
+
+  .print-document-body {
+    overflow: visible !important;
+    padding: 0 !important;
+    color: #0f172a !important;
+  }
+
+  .print-prescription-page {
+    color: #0f172a !important;
+  }
+
+  .print-letterhead {
+    background: #ffffff !important;
+    border: 2px solid #059669 !important;
+    color: #0f172a !important;
+  }
+
+  .print-prescription-page .bg-slate-950,
+  .print-prescription-page .bg-slate-900,
+  .print-prescription-page .bg-slate-900\/90,
+  .print-prescription-page .bg-slate-900\/80,
+  .print-prescription-page .bg-slate-950\/80 {
+    background: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  .print-prescription-page .text-white {
+    color: #0f172a !important;
+  }
+
+  .print-prescription-page .text-slate-200,
+  .print-prescription-page .text-slate-300,
+  .print-prescription-page .text-slate-400 {
+    color: #334155 !important;
+  }
+
+  .print-prescription-page .bg-emerald-950\/40,
+  .print-prescription-page .bg-cyan-950\/40 {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  .print-prescription-page .text-emerald-300,
+  .print-prescription-page .text-emerald-400 {
+    color: #047857 !important;
+  }
+
+  .print-prescription-page .text-cyan-300,
+  .print-prescription-page .text-cyan-400 {
+    color: #0369a1 !important;
+  }
+
+  .print-prescription-page .text-amber-300,
+  .print-prescription-page .text-amber-400 {
+    color: #b45309 !important;
+  }
 }

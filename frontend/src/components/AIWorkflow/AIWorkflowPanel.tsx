@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import type { Examination, PatientCalibration } from '../../types/examination';
+import type { Examination, PatientCalibration, Point3D, PointAnalysis } from '../../types/examination';
 import { calibratePatientMesh } from '../../services/api';
 import {
   AlertTriangle,
@@ -29,6 +29,11 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
+  AlertCircle,
+  CheckCircle,
+  HelpCircle,
+  Pill,
+  X,
 } from 'lucide-react';
 import {
   getHindiQuestion,
@@ -55,6 +60,8 @@ interface AIWorkflowPanelProps {
     patient_gender: string;
     selected_region: string;
     affected_side: 'RIGHT' | 'LEFT';
+    selected_point?: Point3D | null;
+    point_analysis?: PointAnalysis | null;
   }) => void;
   onSubmitStep: (payload: {
     response_boolean?: boolean;
@@ -69,6 +76,9 @@ interface AIWorkflowPanelProps {
   selectedRegion: string;
   affectedSide: 'RIGHT' | 'LEFT';
   onSelectRegion: (region: string, side: 'RIGHT' | 'LEFT') => void;
+  selectedPoint?: Point3D | null;
+  pointAnalysis?: PointAnalysis | null;
+  onClearPoint?: () => void;
 }
 
 export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
@@ -83,6 +93,9 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
   selectedRegion,
   affectedSide,
   onSelectRegion,
+  selectedPoint,
+  pointAnalysis,
+  onClearPoint,
 }) => {
   // Pre-exam form state
   const [patientId, setPatientId] = useState('PT-4821');
@@ -445,6 +458,20 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
     setIsSpeaking(false);
   };
 
+  const playCustomHindiAudio = (text: string) => {
+    if (isSpeaking) {
+      stopSpeaking();
+      setIsSpeaking(false);
+      return;
+    }
+    setIsSpeaking(true);
+    speakInIndianHindi(text, {
+      onStart: () => setIsSpeaking(true),
+      onEnd: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
+  };
+
   // Auto-speak question in Hindi when moving to next step
   React.useEffect(() => {
     if (currentStep?.patient_question && autoSpeakEnabled) {
@@ -777,54 +804,244 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 font-mono bg-cyan-950/80 px-2.5 py-0.5 rounded-full border border-cyan-800/60 flex items-center gap-1.5">
                   <Sparkles className="w-3 h-3 text-cyan-400" />
-                  Step 2: Patient Pain Localization
+                  Step 2: Interactive Pain Localization
                 </span>
                 <span className="text-[10px] text-slate-400 font-mono">
-                  Interactive Selection
+                  {selectedPoint ? '3D Point Selected ✓' : 'Raycast Surface Pointing'}
                 </span>
               </div>
               <h2 className="text-sm font-bold text-white mb-1.5 flex items-center gap-2">
-                Select Patient's Painful Location
+                Point to Any Location on the Patient's Body
               </h2>
               <div className="bg-cyan-950/60 border border-cyan-600/40 rounded-xl p-3 text-xs text-cyan-200/95 leading-relaxed">
-                <strong>Operator Directive:</strong> Ask the patient where they feel pain. <strong>Click directly on that point on the patient's 3D wireframe mesh body</strong> (or choose a quick anatomical region below) to identify the anatomical region and start the AI questions.
+                <strong>Operator Directive:</strong> You can click <strong>any point on the patient's body</strong> (muscles, ribs, spine, shins, abdomen, thigh, arms, or joints). The AI automatically recognizes the exact tissue, rules out red flags, decides what questions and tests to perform, and devises an evidence-based treatment plan.
               </div>
             </div>
 
-            {/* Currently Targeted Region & Direct Launch Button */}
-            <div className="bg-slate-950/90 border border-cyan-500/50 rounded-2xl p-4 shadow-lg space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Targeted Anatomical Region:
-                </span>
-                <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800/80">
-                  {affectedSide} SIDE
-                </span>
-              </div>
-              
-              <div className="text-base font-extrabold text-white flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-cyan-400 animate-ping" />
-                <span>{selectedRegion.replace('_', ' ')}</span>
-              </div>
+            {/* If 3D Point is Selected: Show Detailed AI Decision & Treatment Strategy Card */}
+            {pointAnalysis && selectedPoint && (
+              <div className="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-cyan-400 rounded-2xl p-4 shadow-2xl space-y-3 animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-cyan-500/30 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-cyan-500/20 rounded-lg border border-cyan-400 text-cyan-300">
+                      <Target className="w-4 h-4 animate-pulse" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase tracking-wider block">
+                        Pinpointed 3D Coordinates [{selectedPoint.x.toFixed(2)}, {selectedPoint.y.toFixed(2)}, {selectedPoint.z.toFixed(2)}]
+                      </span>
+                      <h3 className="text-xs font-bold text-white">
+                        {pointAnalysis.display_name}
+                      </h3>
+                    </div>
+                  </div>
+                  {onClearPoint && (
+                    <button
+                      type="button"
+                      onClick={onClearPoint}
+                      className="p-1 text-slate-400 hover:text-red-400 rounded transition-colors text-xs flex items-center gap-1"
+                      title="Clear Pin"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span className="text-[10px]">Clear</span>
+                    </button>
+                  )}
+                </div>
 
-              <button
-                type="button"
-                onClick={() =>
-                  onStartExam({
-                    patient_id: patientId,
-                    patient_name: patientName,
-                    patient_age: patientAge,
-                    patient_gender: patientGender,
-                    selected_region: selectedRegion,
-                    affected_side: affectedSide,
-                  })
-                }
-                className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-950 flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Identify Anatomical Region & Start AI Protocol →
-              </button>
-            </div>
+                {/* Structure and Tissue */}
+                <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 text-xs space-y-0.5">
+                  <div className="text-[10px] text-cyan-400 font-mono uppercase font-bold">Identified Tissue & Innervation</div>
+                  <div className="text-white font-semibold">{pointAnalysis.anatomical_structures.primary_muscle}</div>
+                  <div className="text-[11px] text-slate-400">
+                    {pointAnalysis.anatomical_structures.innervation} • {pointAnalysis.anatomical_structures.functional_role}
+                  </div>
+                </div>
+
+                {/* Cloud AI Differential Diagnosis & Clinical Pearl */}
+                {pointAnalysis.cloud_ai_insights?.differential_diagnosis && pointAnalysis.cloud_ai_insights.differential_diagnosis.length > 0 && (
+                  <div className="bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30 text-xs space-y-1.5">
+                    <div className="text-[10px] text-cyan-300 font-mono uppercase font-bold flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                        Cloud AI Differential Diagnosis
+                      </span>
+                      <span className="text-[9px] bg-cyan-900/80 text-cyan-200 px-1.5 py-0.2 rounded font-mono">
+                        {pointAnalysis.cloud_ai_insights.model_used || 'nemotron-3-nano:30b'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {pointAnalysis.cloud_ai_insights.differential_diagnosis.map((diff, i) => (
+                        <span key={i} className="text-[11px] bg-slate-900 text-cyan-200 border border-cyan-700/50 px-2 py-0.5 rounded-md">
+                          {diff}
+                        </span>
+                      ))}
+                    </div>
+                    {pointAnalysis.cloud_ai_insights.clinical_pearl && (
+                      <div className="text-[11px] text-amber-200/90 bg-amber-950/40 border border-amber-600/30 p-2 rounded-lg mt-1 leading-snug">
+                        <span className="font-bold text-amber-300">💡 Clinical Pearl: </span>
+                        {pointAnalysis.cloud_ai_insights.clinical_pearl}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Red Flag Screen */}
+                <div className="bg-red-950/70 border border-red-500/60 rounded-xl p-2.5 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-bold text-red-300 uppercase font-mono flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                      Safety Stop: {pointAnalysis.clinical_decisions.red_flags.condition}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => playCustomHindiAudio(pointAnalysis.clinical_decisions.red_flags.question_hi || pointAnalysis.clinical_decisions.red_flags.question_en)}
+                      className="p-1 bg-red-900/80 hover:bg-red-800 text-red-200 rounded text-[10px] flex items-center gap-1 transition-colors cursor-pointer"
+                      title="आवाज़ सुनें (Listen in Hindi)"
+                    >
+                      <Volume2 className="w-3 h-3 text-red-300" />
+                      <span>हिंदी सुनें</span>
+                    </button>
+                  </div>
+                  <div className="text-white font-medium text-[11px] leading-snug">
+                    "{pointAnalysis.clinical_decisions.red_flags.question_en}"
+                  </div>
+                  {pointAnalysis.clinical_decisions.red_flags.question_hi && (
+                    <div className="text-[11px] text-red-200/90 font-hindi border-t border-red-800/60 pt-1 leading-snug">
+                      "{pointAnalysis.clinical_decisions.red_flags.question_hi}"
+                    </div>
+                  )}
+                </div>
+
+                {/* Diagnostic Interview Questions */}
+                {pointAnalysis.clinical_decisions.diagnostic_questions && pointAnalysis.clinical_decisions.diagnostic_questions.length > 0 && (
+                  <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 text-xs space-y-1.5">
+                    <div className="text-[10px] text-cyan-400 font-mono uppercase font-bold flex items-center gap-1">
+                      <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
+                      What to Ask the Patient Next:
+                    </div>
+                    <div className="space-y-1.5">
+                      {pointAnalysis.clinical_decisions.diagnostic_questions.map((q, i) => (
+                        <div key={i} className="border-l-2 border-cyan-500/40 pl-2 space-y-0.5">
+                          <div className="text-[11px] text-slate-200 font-medium">{q.prompt_en}</div>
+                          {q.prompt_hi && (
+                            <div className="text-[10px] text-slate-400 font-hindi">{q.prompt_hi}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recommended Tests */}
+                <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 text-xs space-y-1.5">
+                  <div className="text-[10px] text-amber-400 font-mono uppercase font-bold flex items-center gap-1">
+                    <Activity className="w-3.5 h-3.5 text-amber-400" />
+                    Recommended Physical Tests to Perform:
+                  </div>
+                  <div className="space-y-1">
+                    {pointAnalysis.clinical_decisions.recommended_tests.map((t, i) => (
+                      <div key={i} className="text-[11px] bg-slate-900/80 p-1.5 rounded-lg border border-slate-800 flex items-start gap-1.5">
+                        <span className="text-cyan-400 font-bold">•</span>
+                        <div>
+                          <span className="text-white font-semibold">{t.title}</span>
+                          <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{t.instruction_en}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Targeted Treatment Plan */}
+                <div className="bg-emerald-950/50 p-2.5 rounded-xl border border-emerald-500/40 text-xs space-y-1.5">
+                  <div className="text-[10px] text-emerald-300 font-mono uppercase font-bold flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    Tailored Treatment & Rehabilitation Protocol:
+                  </div>
+                  <div className="text-[11px] space-y-1 text-slate-200">
+                    <div>
+                      <span className="text-emerald-300 font-semibold">Phase 1 (Immediate Care):</span>{' '}
+                      {pointAnalysis.clinical_decisions.treatment_plan.phase1_acute}
+                    </div>
+                    <div>
+                      <span className="text-emerald-300 font-semibold">Phase 2 (Rehab Exercises):</span>{' '}
+                      {Array.isArray(pointAnalysis.clinical_decisions.treatment_plan.phase2_rehab)
+                        ? pointAnalysis.clinical_decisions.treatment_plan.phase2_rehab.join(' • ')
+                        : pointAnalysis.clinical_decisions.treatment_plan.phase2_rehab}
+                    </div>
+                    {pointAnalysis.clinical_decisions.treatment_plan.phase3_medical && (
+                      <div>
+                        <span className="text-emerald-300 font-semibold">Phase 3 (Medical Guidance):</span>{' '}
+                        {pointAnalysis.clinical_decisions.treatment_plan.phase3_medical}
+                      </div>
+                    )}
+                    {pointAnalysis.clinical_decisions.treatment_plan.recovery_timeline && (
+                      <div className="text-[10px] text-emerald-400 font-mono">
+                        Expected Recovery Window: {pointAnalysis.clinical_decisions.treatment_plan.recovery_timeline}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Direct Launch Button for this Point */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onStartExam({
+                      patient_id: patientId,
+                      patient_name: patientName,
+                      patient_age: patientAge,
+                      patient_gender: patientGender,
+                      selected_region: pointAnalysis.region_id,
+                      affected_side: pointAnalysis.side === 'BILATERAL' ? 'RIGHT' : pointAnalysis.side,
+                      selected_point: selectedPoint,
+                      point_analysis: pointAnalysis,
+                    })
+                  }
+                  className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-950 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Launch AI Protocol for {pointAnalysis.display_name} →
+                </button>
+              </div>
+            )}
+
+            {/* Currently Targeted Region & Direct Launch Button (when no arbitrary point pin or for standard regions) */}
+            {(!pointAnalysis || !selectedPoint) && (
+              <div className="bg-slate-950/90 border border-cyan-500/50 rounded-2xl p-4 shadow-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Targeted Anatomical Region:
+                  </span>
+                  <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800/80">
+                    {affectedSide} SIDE
+                  </span>
+                </div>
+                
+                <div className="text-base font-extrabold text-white flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-cyan-400 animate-ping" />
+                  <span>{selectedRegion ? selectedRegion.replace('_', ' ') : 'Click Any Point on 3D Mesh'}</span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!selectedRegion}
+                  onClick={() =>
+                    onStartExam({
+                      patient_id: patientId,
+                      patient_name: patientName,
+                      patient_age: patientAge,
+                      patient_gender: patientGender,
+                      selected_region: selectedRegion || 'RIGHT_KNEE',
+                      affected_side: affectedSide,
+                    })
+                  }
+                  className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-950 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Identify Anatomical Region & Start AI Protocol →
+                </button>
+              </div>
+            )}
 
             {/* Quick 1-Click Anatomical Target Grid */}
             <div className="space-y-2">
@@ -1020,22 +1237,39 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
               </div>
             )}
 
-            {/* --- COMPLETED BANNER --- */}
+            {/* --- COMPLETED BANNER & FINAL PRESCRIPTION CTA --- */}
             {examination.status === 'COMPLETED' && !examination.urgent_referral && (
-              <div className="bg-emerald-950/90 border border-emerald-500/50 rounded-xl p-4 space-y-3">
-                <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
-                  <CheckCircle2 className="w-5 h-5" />
-                  Physical Examination Protocol Completed
+              <div className="bg-gradient-to-b from-emerald-950 to-slate-950 border-2 border-emerald-500 rounded-2xl p-4 space-y-3.5 shadow-2xl animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    <span>Physical Examination Protocol Completed!</span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-900/80 text-emerald-200 px-2 py-0.5 rounded font-mono font-bold border border-emerald-700">
+                    Rx Ready
+                  </span>
                 </div>
-                <p className="text-xs text-emerald-200/90 leading-relaxed">
-                  {examination.clinical_summary}
+                <p className="text-xs text-emerald-100 leading-relaxed">
+                  {examination.clinical_summary || 'Comprehensive physical examination and movement analysis concluded successfully. Targeted pharmacological and physical therapy prescriptions have been generated.'}
                 </p>
+                <div className="bg-emerald-900/30 border border-emerald-600/40 p-2.5 rounded-xl text-xs text-emerald-200 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-emerald-300">
+                    <Pill className="w-4 h-4 text-emerald-400" />
+                    <span>Prescription & Rehabilitation Protocol:</span>
+                  </div>
+                  <div className="text-[11px] text-slate-300">
+                    • Specific Medications with <strong>"How to Use / लेने का तरीका"</strong> guidelines<br/>
+                    • Targeted Physiotherapy Exercises with <strong>"How to Perform / करने की विधि"</strong> & Reps/Sets<br/>
+                    • Home care cryotherapy/elevation & activity restrictions
+                  </div>
+                </div>
                 <button
+                  type="button"
                   onClick={onOpenReport}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <FileText className="w-4 h-4" />
-                  Open Structured Clinical Report for Clinician Sign-Off
+                  <span>📄 Open Final Prescription & Exercise Plan (दवा और व्यायाम पर्ची) →</span>
                 </button>
               </div>
             )}

@@ -2,7 +2,7 @@ import React, { useRef, useState, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import type { BiomechanicalMeasurement, ClinicalFinding } from '../../types/examination';
+import type { BiomechanicalMeasurement, ClinicalFinding, Point3D } from '../../types/examination';
 
 interface DenseHumanMeshProps {
   selectedRegion: string;
@@ -11,6 +11,8 @@ interface DenseHumanMeshProps {
   measurements?: BiomechanicalMeasurement[];
   findings?: ClinicalFinding[];
   isExamActive: boolean;
+  selectedPoint?: Point3D | null;
+  onSelectPoint?: (point: Point3D) => void;
 }
 
 interface AnatomicalZone {
@@ -46,6 +48,8 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
   measurements = [],
   findings = [],
   isExamActive: _isExamActive,
+  selectedPoint,
+  onSelectPoint,
 }) => {
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const pulseRef = useRef<THREE.Group>(null);
@@ -157,8 +161,27 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
       {/* --- DENSE ANATOMICAL HUMAN MESH (IMAGE 1 WIREFRAME AESTHETIC) --- */}
       {bodyGeometry && (
         <group>
-          {/* Layer 1: Dark translucent core (depthWrite=false to prevent any z-fighting or black masking) */}
-          <mesh geometry={bodyGeometry}>
+          {/* Layer 1: Dark core + Raycast surface listener for ANY POINT on the body */}
+          <mesh
+            geometry={bodyGeometry}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSelectPoint) {
+                onSelectPoint({
+                  x: e.point.x,
+                  y: e.point.y,
+                  z: e.point.z,
+                  normal: e.face ? { x: e.face.normal.x, y: e.face.normal.y, z: e.face.normal.z } : undefined,
+                });
+              }
+            }}
+            onPointerOver={() => {
+              document.body.style.cursor = 'crosshair';
+            }}
+            onPointerOut={() => {
+              document.body.style.cursor = 'default';
+            }}
+          >
             <meshStandardMaterial
               color="#021422"
               roughness={0.5}
@@ -178,6 +201,46 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
               wireframe
               transparent
               opacity={0.85}
+            />
+          </mesh>
+        </group>
+      )}
+
+      {/* --- ARBITRARY POINT SELECTION 3D BEACON PIN --- */}
+      {selectedPoint && (
+        <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
+          {/* Animated radiating beacon pulse ring */}
+          <group ref={pulseRef}>
+            <mesh position={[0, 0, 0.02]}>
+              <ringGeometry args={[0.045, 0.08, 32]} />
+              <meshBasicMaterial
+                color="#00e5ff"
+                side={THREE.DoubleSide}
+                transparent
+                opacity={0.9}
+                depthWrite={false}
+              />
+            </mesh>
+            <mesh position={[0, 0, 0.025]}>
+              <ringGeometry args={[0.015, 0.035, 32]} />
+              <meshBasicMaterial
+                color="#f59e0b"
+                side={THREE.DoubleSide}
+                transparent
+                opacity={0.95}
+                depthWrite={false}
+              />
+            </mesh>
+          </group>
+
+          {/* Glowing central target sphere */}
+          <mesh>
+            <sphereGeometry args={[0.02, 16, 16]} />
+            <meshStandardMaterial
+              color="#38bdf8"
+              emissive="#38bdf8"
+              emissiveIntensity={1.2}
+              depthWrite={false}
             />
           </mesh>
         </group>

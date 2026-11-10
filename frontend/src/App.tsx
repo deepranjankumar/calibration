@@ -3,11 +3,12 @@ import { BodyMeshViewer } from './components/ThreeBodyMesh/BodyMeshViewer';
 import { AIWorkflowPanel } from './components/AIWorkflow/AIWorkflowPanel';
 import { BiomechanicalPanel } from './components/BiomechanicalAnalytics/BiomechanicalPanel';
 import { ClinicalReportModal } from './components/ClinicalReport/ClinicalReportModal';
-import type { Examination, PatientCalibration, Point3D, PointAnalysis } from './types/examination';
+import type { Examination, PatientCalibration, Point3D, PointAnalysis, PainPathAnalysis } from './types/examination';
 import {
   createExamination,
   submitStepJson,
   submitStepFormData,
+  analyzePainPath,
 } from './services/api';
 import {
   Stethoscope,
@@ -23,9 +24,100 @@ export const App: React.FC = () => {
   const [examination, setExamination] = useState<Examination | null>(null);
   const [patientCalibration, setPatientCalibration] = useState<PatientCalibration | null>(null);
   const [selectedPoint, setSelectedPoint] = useState<Point3D | null>(null);
+  const [selectedPoints, setSelectedPoints] = useState<Point3D[]>([]);
+  const [selectionMode, setSelectionMode] = useState<'POINT' | 'LINE'>('LINE');
+  const [painPathAnalysis, setPainPathAnalysis] = useState<PainPathAnalysis | null>(null);
   const [pointAnalysis, setPointAnalysis] = useState<PointAnalysis | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+
+  const handleAddPointToPath = async (point: Point3D) => {
+    const updatedPoints = [...selectedPoints, point];
+    setSelectedPoints(updatedPoints);
+    setSelectedPoint(point);
+
+    try {
+      const pathReq = updatedPoints.map((p) => ({
+        point: { x: p.x, y: p.y, z: p.z },
+        normal: p.normal,
+      }));
+      const analysis = await analyzePainPath(
+        pathReq,
+        selectionMode,
+        affectedSide,
+        patientCalibration
+      );
+      setPainPathAnalysis(analysis);
+      if (analysis.primary_region) {
+        setSelectedRegion(analysis.primary_region);
+      }
+      if (analysis.affected_side && analysis.affected_side !== 'BILATERAL') {
+        setAffectedSide(analysis.affected_side as 'RIGHT' | 'LEFT');
+      }
+      if (analysis.points_detail && analysis.points_detail.length > 0) {
+        setPointAnalysis(analysis.points_detail[0]);
+      }
+    } catch (err) {
+      console.error('Failed to analyze pain path:', err);
+    }
+  };
+
+  const handleUndoPoint = async () => {
+    if (selectedPoints.length === 0) return;
+    const updated = selectedPoints.slice(0, -1);
+    setSelectedPoints(updated);
+    if (updated.length > 0) {
+      const last = updated[updated.length - 1];
+      setSelectedPoint(last);
+      try {
+        const pathReq = updated.map((p) => ({
+          point: { x: p.x, y: p.y, z: p.z },
+          normal: p.normal,
+        }));
+        const analysis = await analyzePainPath(
+          pathReq,
+          selectionMode,
+          affectedSide,
+          patientCalibration
+        );
+        setPainPathAnalysis(analysis);
+      } catch (err) {
+        console.error('Failed to update pain path on undo:', err);
+      }
+    } else {
+      setSelectedPoint(null);
+      setPainPathAnalysis(null);
+      setPointAnalysis(null);
+    }
+  };
+
+  const handleClearPoints = () => {
+    setSelectedPoints([]);
+    setSelectedPoint(null);
+    setPainPathAnalysis(null);
+    setPointAnalysis(null);
+  };
+
+  const handleChangeSelectionMode = async (mode: 'POINT' | 'LINE') => {
+    setSelectionMode(mode);
+    if (selectedPoints.length > 0) {
+      try {
+        const pathReq = selectedPoints.map((p) => ({
+          point: { x: p.x, y: p.y, z: p.z },
+          normal: p.normal,
+        }));
+        const analysis = await analyzePainPath(
+          pathReq,
+          mode,
+          affectedSide,
+          patientCalibration
+        );
+        setPainPathAnalysis(analysis);
+      } catch (err) {
+        console.error('Failed to re-analyze path on mode change:', err);
+      }
+    }
+  };
 
   const handleStartExam = async (data: {
     patient_id: string;
@@ -35,12 +127,16 @@ export const App: React.FC = () => {
     selected_region: string;
     affected_side: 'RIGHT' | 'LEFT';
     selected_point?: Point3D | null;
+    selected_points?: Point3D[] | null;
     point_analysis?: PointAnalysis | null;
+    pain_path_analysis?: PainPathAnalysis | null;
   }) => {
     setIsSubmitting(true);
     try {
       const pointToUse = data.selected_point !== undefined ? data.selected_point : selectedPoint;
+      const pointsToUse = data.selected_points !== undefined && data.selected_points !== null ? data.selected_points : selectedPoints;
       const analysisToUse = data.point_analysis !== undefined ? data.point_analysis : pointAnalysis;
+      const pathAnalysisToUse = data.pain_path_analysis !== undefined ? data.pain_path_analysis : painPathAnalysis;
 
       const newExam = await createExamination({
         patient_id: data.patient_id,
@@ -51,13 +147,17 @@ export const App: React.FC = () => {
         affected_side: data.affected_side,
         patient_calibration: patientCalibration,
         selected_point: pointToUse,
+        selected_points: pointsToUse && pointsToUse.length > 0 ? pointsToUse : undefined,
         point_analysis: analysisToUse,
+        pain_path_analysis: pathAnalysisToUse || undefined,
       });
       setExamination(newExam);
       setSelectedRegion(data.selected_region);
       setAffectedSide(data.affected_side);
       if (newExam.selected_point) setSelectedPoint(newExam.selected_point);
+      if (newExam.selected_points) setSelectedPoints(newExam.selected_points);
       if (newExam.point_analysis) setPointAnalysis(newExam.point_analysis);
+      if (newExam.pain_path_analysis) setPainPathAnalysis(newExam.pain_path_analysis);
     } catch (err: any) {
       alert(`Error starting examination: ${err.message}`);
     } finally {
@@ -65,22 +165,9 @@ export const App: React.FC = () => {
     }
   };
 
-  // Immediate start when operator selects a region on the 3D body mesh or quick tags
-  const handleSelectRegionAndStart = async (region: string, side: 'RIGHT' | 'LEFT') => {
+  const handleSelectRegion = (region: string, side: 'RIGHT' | 'LEFT') => {
     setSelectedRegion(region);
     setAffectedSide(side);
-
-    // If examination is not already active, start the AI clinical protocol
-    if (!examination) {
-      await handleStartExam({
-        patient_id: 'PT-4821',
-        patient_name: 'John Doe',
-        patient_age: 48,
-        patient_gender: 'Male',
-        selected_region: region,
-        affected_side: side,
-      });
-    }
   };
 
   const handleSubmitStep = async (payload: {
@@ -155,6 +242,8 @@ export const App: React.FC = () => {
       setAffectedSide('RIGHT');
       setPatientCalibration(null);
       setSelectedPoint(null);
+      setSelectedPoints([]);
+      setPainPathAnalysis(null);
       setPointAnalysis(null);
     }
   };
@@ -205,7 +294,7 @@ export const App: React.FC = () => {
           ) : (
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-700/80 px-3 py-1 rounded-xl text-xs text-slate-400">
               <Activity className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-              <span>{effectiveCalibration ? 'Mesh Calibrated: Select Pain Point' : 'Step 1: Patient Photo Intake'}</span>
+              <span>{effectiveCalibration ? 'Mesh Calibrated: Select Pain Point or Line' : 'Step 1: Patient Photo Intake'}</span>
             </div>
           )}
 
@@ -250,13 +339,18 @@ export const App: React.FC = () => {
             isSubmitting={isSubmitting}
             selectedRegion={selectedRegion}
             affectedSide={affectedSide}
-            onSelectRegion={handleSelectRegionAndStart}
+            onSelectRegion={handleSelectRegion}
             selectedPoint={selectedPoint || examination?.selected_point}
+            selectedPoints={selectedPoints}
+            selectionMode={selectionMode}
+            onChangeSelectionMode={handleChangeSelectionMode}
             pointAnalysis={pointAnalysis || examination?.point_analysis}
+            painPathAnalysis={painPathAnalysis || examination?.pain_path_analysis}
             onClearPoint={() => {
               setSelectedPoint(null);
               setPointAnalysis(null);
             }}
+            onClearPoints={handleClearPoints}
           />
         </div>
 
@@ -266,14 +360,18 @@ export const App: React.FC = () => {
           <div className="mesh-canvas-wrapper">
             <BodyMeshViewer
               selectedRegion={examination ? examination.selected_region : selectedRegion}
-              onSelectRegion={handleSelectRegionAndStart}
+              onSelectRegion={handleSelectRegion}
               affectedSide={examination ? examination.affected_side : affectedSide}
               measurements={examination?.measurements || []}
               findings={examination?.findings || []}
               isExamActive={Boolean(examination && examination.status === 'ACTIVE')}
               patientCalibration={effectiveCalibration}
               selectedPoint={selectedPoint || examination?.selected_point}
+              selectedPoints={selectedPoints}
+              selectionMode={selectionMode}
+              onChangeSelectionMode={handleChangeSelectionMode}
               pointAnalysis={pointAnalysis || examination?.point_analysis}
+              painPathAnalysis={painPathAnalysis || examination?.pain_path_analysis}
               onSelectPoint={(pt, analysis) => {
                 setSelectedPoint(pt);
                 if (analysis) {
@@ -282,6 +380,9 @@ export const App: React.FC = () => {
                   setAffectedSide(analysis.side === 'BILATERAL' ? 'RIGHT' : analysis.side);
                 }
               }}
+              onAddPointToPath={handleAddPointToPath}
+              onUndoPoint={handleUndoPoint}
+              onClearPoints={handleClearPoints}
               onStartPointExam={async (pt, analysis) => {
                 setSelectedPoint(pt);
                 setPointAnalysis(analysis);

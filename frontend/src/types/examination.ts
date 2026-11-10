@@ -176,7 +176,48 @@ export interface PointAnalysis {
       phase3_medical: string;
       recovery_timeline?: string;
     };
+    differential_diagnosis?: string[];
+    clinical_pearl?: string;
   };
+}
+
+export interface PainPathAnalysis {
+  pattern_id: string;
+  pattern_title_en: string;
+  pattern_title_hi: string;
+  is_radiation_line: boolean;
+  total_points: number;
+  primary_region: string;
+  affected_side: string;
+  path_summary_en: string;
+  path_summary_hi: string;
+  doctor_consultation_greeting_en: string;
+  doctor_consultation_greeting_hi: string;
+  doctor_questions: Array<{
+    id: string;
+    prompt_en: string;
+    prompt_hi?: string;
+    choices?: Array<{ value: string; label: string }>;
+  }>;
+  recommended_physical_movements: Array<{
+    test_id: string;
+    title: string;
+    instruction_en: string;
+    instruction_hi?: string;
+    action_type: string;
+    target_joint?: string;
+  }>;
+  provocative_tests: Array<{
+    test_id: string;
+    title: string;
+    instruction_en: string;
+    instruction_hi?: string;
+    action_type: string;
+    input_config?: any;
+  }>;
+  differential_diagnosis: string[];
+  clinical_pearl: string;
+  points_detail: PointAnalysis[];
 }
 
 export interface ClinicalFinding {
@@ -220,7 +261,9 @@ export interface Examination {
   measurements: BiomechanicalMeasurement[];
   patient_calibration?: PatientCalibration | null;
   selected_point?: Point3D | null;
+  selected_points?: Point3D[] | null;
   point_analysis?: PointAnalysis | null;
+  pain_path_analysis?: any | null;
 }
 
 export interface MedicationPrescription {

@@ -11,12 +11,12 @@ import type {
   PatientCalibration,
   Point3D,
   PointAnalysis,
+  PainPathAnalysis,
 } from '../../types/examination';
 import { analyzeBodyPoint } from '../../services/api';
 import {
   RotateCcw,
   Eye,
-  ShieldAlert,
   Sparkles,
   Play,
   Pause,
@@ -29,6 +29,9 @@ import {
   Maximize2,
   Crosshair,
   Target,
+  Zap,
+  Undo2,
+  Trash2,
 } from 'lucide-react';
 
 interface BodyMeshViewerProps {
@@ -40,8 +43,15 @@ interface BodyMeshViewerProps {
   isExamActive: boolean;
   patientCalibration?: PatientCalibration | null;
   selectedPoint?: Point3D | null;
+  selectedPoints?: Point3D[];
+  selectionMode?: 'POINT' | 'LINE';
+  onChangeSelectionMode?: (mode: 'POINT' | 'LINE') => void;
   pointAnalysis?: PointAnalysis | null;
+  painPathAnalysis?: PainPathAnalysis | null;
   onSelectPoint?: (point: Point3D, analysis?: PointAnalysis) => void;
+  onAddPointToPath?: (point: Point3D) => void;
+  onUndoPoint?: () => void;
+  onClearPoints?: () => void;
   onStartPointExam?: (point: Point3D, analysis: PointAnalysis) => void;
   onClearPoint?: () => void;
 }
@@ -58,8 +68,15 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
   isExamActive,
   patientCalibration,
   selectedPoint,
+  selectedPoints = [],
+  selectionMode = 'LINE',
+  onChangeSelectionMode,
   pointAnalysis,
+  painPathAnalysis,
   onSelectPoint,
+  onAddPointToPath,
+  onUndoPoint,
+  onClearPoints,
   onStartPointExam: _onStartPointExam,
   onClearPoint,
 }) => {
@@ -74,6 +91,11 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
   const activeAnalysis = pointAnalysis !== undefined ? pointAnalysis : localAnalysis;
 
   const handlePointSelect = async (pt: Point3D) => {
+    if (onAddPointToPath) {
+      onAddPointToPath(pt);
+      return;
+    }
+
     setLocalPoint(pt);
     setIsAnalyzing(true);
     try {
@@ -97,6 +119,9 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
   const handleClearPin = () => {
     setLocalPoint(null);
     setLocalAnalysis(null);
+    if (onClearPoints) {
+      onClearPoints();
+    }
     if (onClearPoint) {
       onClearPoint();
     }
@@ -233,42 +258,150 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
     <div className="relative w-full flex-1 min-h-[420px] flex flex-col bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
       {/* Top Header Controls & Camera Presets */}
       <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none gap-2">
-        {/* Anatomical Status Badge */}
-        <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/60 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md pointer-events-auto">
-          <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-          <span className="text-xs font-semibold text-slate-200">
-            {selectedRegion ? regionDisplayName : 'Select Painful Location'}
-          </span>
-          <span className="text-[10px] text-cyan-400/90 font-mono bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/50">
-            {selectedRegion ? `${affectedSide} SIDE` : 'IDLE'}
-          </span>
-
-          {patientCalibration && (
-            <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-700">
-              {patientCalibration.detected_body_part ? (
-                <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/70 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1 shadow-sm">
-                  <Target className="w-3 h-3 text-cyan-400" />
-                  DETECTED: {patientCalibration.detected_body_part.display_name} ({patientCalibration.detected_body_part.posture})
+        {/* Anatomical Status & Guidance Badge */}
+        {activePoint ? (
+          <div className="flex items-center gap-2 bg-slate-900/95 border border-cyan-500/80 px-3 py-1.5 rounded-xl shadow-xl backdrop-blur-md pointer-events-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
+            <span className="text-xs font-bold text-white">
+              {activeAnalysis?.display_name || 'Selected Point'}
+            </span>
+            <span className="text-[10px] text-cyan-400 font-mono bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-800">
+              [{activePoint.x.toFixed(2)}, {activePoint.y.toFixed(2)}, {activePoint.z.toFixed(2)}]
+            </span>
+            {isAnalyzing ? (
+              <span className="text-[10px] text-amber-300 font-mono animate-pulse border-l border-slate-700 pl-2">
+                Analyzing...
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleClearPin}
+                className="p-0.5 text-slate-400 hover:text-red-400 rounded transition-colors ml-1 cursor-pointer"
+                title="Clear Point Selection"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/60 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md pointer-events-auto">
+            {selectedRegion ? (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-semibold text-slate-200">
+                  {regionDisplayName}
                 </span>
-              ) : (
-                <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-600/50 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
-                  <UserCheck className="w-3 h-3 text-emerald-400" />
-                  PATIENT CALIBRATED ({patientCalibration.body_proportions.estimated_height_cm}cm)
+                <span className="text-[10px] text-cyan-400/90 font-mono bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/50">
+                  {affectedSide} SIDE
                 </span>
-              )}
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-xs font-semibold text-slate-200">
+                  Click 3D Mesh to Localize Pain
+                </span>
+                <span className="text-[10px] text-cyan-400/90 font-mono bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/50">
+                  READY
+                </span>
+              </>
+            )}
 
-              {patientCalibration.annotated_image_url && (
-                <button
-                  type="button"
-                  onClick={() => setShowPhotoModal(true)}
-                  className="p-1 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded transition-colors"
-                  title="View Calibrated Patient Photo"
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          )}
+            {patientCalibration && (
+              <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-700">
+                {patientCalibration.detected_body_part ? (
+                  <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/70 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1 shadow-sm">
+                    <Target className="w-3 h-3 text-cyan-400" />
+                    DETECTED: {patientCalibration.detected_body_part.display_name} ({patientCalibration.detected_body_part.posture})
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-600/50 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                    <UserCheck className="w-3 h-3 text-emerald-400" />
+                    CALIBRATED ({patientCalibration.body_proportions.estimated_height_cm}cm)
+                  </span>
+                )}
+
+                {patientCalibration.annotated_image_url && (
+                  <button
+                    type="button"
+                    onClick={() => setShowPhotoModal(true)}
+                    className="p-1 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded transition-colors"
+                    title="View Calibrated Patient Photo"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Pain Path / Point Selection Mode Bar & Camera Toolbar */}
+        <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+          {/* Mode Switch: Point vs Line */}
+          <div className="flex items-center gap-1 bg-slate-900/95 border border-cyan-500/60 p-1 rounded-xl shadow-xl backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => onChangeSelectionMode?.('POINT')}
+              title="Single / Multi-Point Tender Zone Mode"
+              className={`text-xs px-2.5 py-1 rounded-lg transition-all font-bold flex items-center gap-1.5 cursor-pointer ${
+                selectionMode === 'POINT'
+                  ? 'bg-cyan-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Target className="w-3.5 h-3.5 text-cyan-300" />
+              <span>Point</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeSelectionMode?.('LINE')}
+              title="Continuous Pain Radiation Trajectory / Nerve Line (e.g. Sciatica, Spine)"
+              className={`text-xs px-2.5 py-1 rounded-lg transition-all font-bold flex items-center gap-1.5 cursor-pointer ${
+                selectionMode === 'LINE'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300" />
+              <span>Radiation Line</span>
+            </button>
+
+            {/* Points Counter and Pattern Alert */}
+            {selectedPoints && selectedPoints.length > 0 && (
+              <>
+                <div className="w-px h-4 bg-slate-700 mx-0.5" />
+                <span className="text-[11px] font-mono font-bold text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/60">
+                  {selectedPoints.length} Pt{selectedPoints.length > 1 ? 's' : ''}
+                </span>
+                {painPathAnalysis?.pattern_title_en && (
+                  <span className="text-[10px] font-bold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/50 hidden lg:inline">
+                    ⚡ {painPathAnalysis.pattern_title_en}
+                  </span>
+                )}
+                {onUndoPoint && (
+                  <button
+                    type="button"
+                    onClick={onUndoPoint}
+                    title="Undo Last Marked Point"
+                    className="p-1 text-slate-300 hover:text-amber-400 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {onClearPoints && (
+                  <button
+                    type="button"
+                    onClick={onClearPoints}
+                    title="Clear All Marked Points"
+                    className="p-1 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Camera Views & Zoom Toolbar */}
@@ -309,7 +442,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
           {/* Framing & Zoom Actions */}
           <button
             onClick={focusOnSelectedRegion}
-            title={`Focus on ${regionDisplayName}`}
+            title={`Focus on ${regionDisplayName || 'Body'}`}
             className="text-xs px-2 py-1 text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/60 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
           >
             <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
@@ -323,6 +456,8 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
             <Maximize2 className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Full Body</span>
           </button>
+
+          <div className="w-px h-4 bg-slate-700 mx-1" />
 
           <button
             onClick={() => handleZoom(0.4)}
@@ -385,6 +520,8 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
                 findings={findings}
                 isExamActive={isExamActive}
                 selectedPoint={activePoint}
+                selectedPoints={selectedPoints}
+                selectionMode={selectionMode}
                 onSelectPoint={handlePointSelect}
               />
             ) : (
@@ -396,6 +533,8 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
                 findings={findings}
                 isExamActive={isExamActive}
                 selectedPoint={activePoint}
+                selectedPoints={selectedPoints}
+                selectionMode={selectionMode}
                 onSelectPoint={handlePointSelect}
               />
             )}
@@ -415,89 +554,12 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
         </Canvas>
       </div>
 
-      {/* Floating Tactical Zoom & Framer HUD in Bottom-Right */}
-      <div className="absolute right-4 bottom-20 z-20 flex flex-col gap-1 bg-slate-900/90 border border-slate-700/80 p-1.5 rounded-xl shadow-2xl backdrop-blur-md">
-        <button
-          type="button"
-          onClick={() => handleZoom(-0.4)}
-          title="Zoom In"
-          className="p-2 text-slate-300 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-        >
-          <ZoomIn className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => handleZoom(0.4)}
-          title="Zoom Out"
-          className="p-2 text-slate-300 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-        >
-          <ZoomOut className="w-4 h-4" />
-        </button>
-        <div className="w-full h-px bg-slate-800 my-0.5" />
-        <button
-          type="button"
-          onClick={setFullBodyView}
-          title="Fit Full Body"
-          className="p-2 text-slate-300 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-        >
-          <Maximize2 className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          onClick={focusOnSelectedRegion}
-          title={`Focus on ${regionDisplayName}`}
-          className="p-2 text-cyan-400 hover:text-white hover:bg-cyan-950/80 rounded-lg transition-colors cursor-pointer"
-        >
-          <Crosshair className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Sleek Top Status & Guidance Indicator (Unobtrusive) */}
-      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-10 pointer-events-auto">
-        {activePoint ? (
-          <div className="bg-slate-900/95 border border-cyan-500/80 text-cyan-200 text-xs px-3.5 py-1.5 rounded-full shadow-xl backdrop-blur-md flex items-center gap-2.5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-            <span className="font-bold text-white">
-              {activeAnalysis?.display_name || 'Selected Point'}
-            </span>
-            <span className="text-[10px] text-cyan-400 font-mono bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-800">
-              [{activePoint.x.toFixed(2)}, {activePoint.y.toFixed(2)}, {activePoint.z.toFixed(2)}]
-            </span>
-            {isAnalyzing ? (
-              <span className="text-[10px] text-amber-300 font-mono animate-pulse border-l border-slate-700 pl-2">
-                Analyzing Point Intelligence...
-              </span>
-            ) : (
-              <span className="text-[10px] text-slate-400 border-l border-slate-700 pl-2 hidden sm:inline">
-                Decisions & Protocol loaded in Left AI Panel
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={handleClearPin}
-              className="text-slate-400 hover:text-red-400 p-0.5 rounded transition-colors ml-1 cursor-pointer"
-              title="Clear Point Selection"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : !isExamActive ? (
-          <div className="bg-slate-900/90 border border-slate-700/80 text-slate-300 text-xs px-3.5 py-1.5 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Click any point on the 3D body (muscles, ribs, spine, limbs) to analyze & plan treatment</span>
-          </div>
-        ) : (
-          <div className="bg-slate-900/90 border border-cyan-500/50 text-cyan-300 text-[11px] font-mono px-3.5 py-1.5 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold">ANATOMICAL TARGET: {selectedRegion.replace(/_/g, ' ')}</span>
-            <span className="text-slate-400">• Real-Time 3D Mesh Kinematics</span>
-          </div>
-        )}
-      </div>
-
       {/* Motion Replay Player Bar (When Video Kinematics Available) */}
       {motionFrames.length > 0 && (
-        <div className="absolute bottom-16 left-4 right-4 z-20">
+        <div
+          className="absolute z-20 pointer-events-auto"
+          style={{ bottom: '1rem', left: '1rem', right: '1rem' }}
+        >
           <div className="bg-slate-900/95 border border-cyan-500/60 rounded-xl p-2.5 backdrop-blur-md shadow-2xl flex items-center gap-3">
             <button
               type="button"
@@ -544,22 +606,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
         </div>
       )}
 
-      {/* Mandatory Regulatory & Biomechanical Disclaimer Footer */}
-      <div className="absolute bottom-2 left-3 right-3 z-10 pointer-events-none">
-        <div className="bg-slate-900/90 border border-slate-700/80 rounded-xl p-2.5 backdrop-blur-md shadow-xl flex items-start gap-2.5">
-          <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-          <div className="text-[11px] leading-tight text-slate-300">
-            <span className="font-semibold text-amber-400 uppercase tracking-wider inline mr-1.5">
-              Patient-Calibrated Biomechanical Visualization:
-            </span>
-            <span>
-              {patientCalibration
-                ? `Anatomical wireframe reconstructed from patient photo (Height: ~${patientCalibration.body_proportions.estimated_height_cm}cm, Shoulder: ${patientCalibration.body_proportions.shoulder_width_m}m). Joint kinematics analyzed via MediaPipe 1.x Pose.`
-                : 'Standardized anatomical wireframe. Joint angles and range-of-motion metrics are computed in real time from MediaPipe kinematic tracking.'}
-            </span>
-          </div>
-        </div>
-      </div>
+
 
       {/* Patient Calibrated Photo Preview Modal */}
       {showPhotoModal && patientCalibration && (

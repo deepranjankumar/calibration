@@ -19,8 +19,17 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
     3. Computer Vision objective biomechanical measurements (ROM deficit, lag, velocity)
     4. Regional epidemiological context (Bihar / Purnea formulary)
     
+    Robustly identifies root causes:
+    - Sciatica ("citika" / L4-S1 disc root compression)
+    - Piriformis Syndrome (deep gluteal entrapment)
+    - Full Spine Axial Kinetic Chain Strain (neck to buttock head-loading strain)
+    - Lumbar Canal Stenosis (neurogenic claudication)
+    - Symmetrical Peripheral Neuropathy (burning feet / B12 deficiency)
+    - Calf nocturnal cramps & venous stasis
+    - Cervical spondylosis with radiculopathy
+    
     Automatically formulates full diagnosis, tailored medications with Hindi instructions,
-    and targeted rehabilitation exercises so the operator does not have to write anything.
+    and targeted evidence-based physical therapy exercises so the operator does not have to write anything.
     """
     point_analysis = exam.point_analysis or {}
     region_id = exam.selected_region.upper()
@@ -39,14 +48,15 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
     finding_texts = " ".join([f"{f.title or ''} {f.description or ''}" for f in findings]).lower()
     has_high_tenderness = any(f.severity in ["CRITICAL", "SEVERE"] for f in findings)
     
+    # Specific Clinical Condition Detectors:
     has_radiating_neuropathy = any(
         kw in finding_texts 
-        for kw in ["tingling", "pins and needles", "numbness", "electric", "shooting", "sciatica", "median nerve", "carpal tunnel", "झुनझुनी", "सुन्न"]
+        for kw in ["tingling", "pins and needles", "numbness", "electric", "shooting", "sciatica", "median nerve", "carpal tunnel", "झुनझुनी", "सुन्न", "करंट"]
     ) or ("NERVE" in innervation.upper() and ("RADIAL" in innervation.upper() or "MEDIAN" in innervation.upper() or "SCIATIC" in innervation.upper()))
     
     has_acute_spasm = any(
         kw in finding_texts 
-        for kw in ["spasm", "cramp", "locked", "stiffness", "paraspinal", "जकड़न", "ऐंठन"]
+        for kw in ["spasm", "cramp", "locked", "stiffness", "paraspinal", "जकड़न", "ऐंठन", "नस खिंचना"]
     ) or "SPINE" in region_id or "BACK" in region_id or "NECK" in region_id or "CALF" in region_id
     
     has_swelling_effusion = any(
@@ -79,6 +89,55 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
         for kw in ["fungal", "ringworm", "tinea", "scabies", "itch", "rash", "wound", "boil", "दाद", "खाज", "खुजली"]
     ) or "SKIN" in region_id
 
+    # (A) Sciatica ("citika" / L4-S1 Disc Herniation with Radiculopathy):
+    is_sciatica = (
+        any(kw in finding_texts for kw in [
+            "sciatica", "सायटिका", "साइटिका", "l4-l5", "l5-s1", "lasegue", "straight leg raise", 
+            "past knee", "घुटने के नीचे", "current", "electric shock", "shooting down leg", "पैर में करंट"
+        ]) or 
+        ("SCIATIC" in innervation.upper() and any(kw in finding_texts for kw in ["tingling", "numbness", "shooting", "झुनझुनी", "सुन्न"])) or
+        (("LUMBAR" in region_id or "SPINE" in region_id or "GLUTEAL" in region_id or "THIGH" in region_id) and 
+         any(kw in finding_texts for kw in ["tingling", "electric", "shooting", "झुनझुनी", "सुन्न", "करंट"]))
+    )
+
+    # (B) Piriformis Syndrome (Deep Gluteal Space False Sciatica):
+    is_piriformis = (
+        ("PIRIFORMIS" in region_id or "GLUTEAL" in region_id or "buttock" in finding_texts or "नितंब" in finding_texts or "कूल्हे" in finding_texts) and
+        any(kw in finding_texts for kw in ["sitting", "chair", "wallet", "बैठने", "कुर्सी", "fair test", "deep ache"]) and
+        not any(kw in finding_texts for kw in ["midline spine", "vertebral tenderness"])
+    )
+
+    # (C) Full Spine Axial Kinetic Chain Strain (Neck down to Buttocks / Head-Loading Syndrome):
+    is_full_spine_axial = (
+        any(kw in finding_texts for kw in [
+            "head load", "गठरी", "बोरी", "घड़ा", "neck to buttock", "neck to back", "गर्दन से कमर", "कूल्हे तक", "पूरा बदन", "kinetic chain", "axial", "रीढ़ में खिंचाव"
+        ]) or
+        (("CERVICAL" in region_id or "NECK" in region_id) and any(kw in finding_texts for kw in ["back", "buttock", "कमर", "पीठ", "जकड़न"])) or
+        (("THORACIC" in region_id or "LUMBAR" in region_id) and any(kw in finding_texts for kw in ["neck", "गर्दन", "कंधे", "गठरी"]))
+    )
+
+    # (D) Lumbar Spinal Canal Stenosis (Neurogenic Claudication):
+    is_lumbar_stenosis = any(kw in finding_texts for kw in [
+        "claudication", "stenosis", "स्टेनोसिस", "walking", "चलने पर भारीपन", "झुकने पर आराम", "shopping cart"
+    ])
+
+    # (E) Symmetrical Peripheral Neuropathy (Burning Feet / B12 Deficiency / Diabetes):
+    is_peripheral_neuropathy = any(kw in finding_texts for kw in [
+        "burning feet", "soles", "तलवे में जलन", "पैरों में जलन", "pins and needles", "diabetic", "b12", "न्यूरोपैथी"
+    ]) and not is_sciatica
+
+    # (F) Gastrocnemius Nocturnal Muscle Cramps & Venous Stasis:
+    is_calf_cramps = (
+        ("CALF" in region_id or "LEG" in region_id) and
+        any(kw in finding_texts for kw in ["cramp", "night", "nocturnal", "पिंडली में नस चढ़ना", "ऐंठन", "रात में दर्द", "भारीपन"])
+    )
+
+    # (G) Cervical Spondylosis with Radiculopathy:
+    is_cervical_radiculopathy = (
+        ("CERVICAL" in region_id or "NECK" in region_id) and
+        any(kw in finding_texts for kw in ["arm", "fingers", "hand", "हाथ", "उंगलियों", "tingling", "झुनझुनी", "spurling"])
+    )
+
     # 2. Analyze Objective Computer Vision Measurements
     cv_rom_deficit = False
     cv_severe_loss = False
@@ -92,35 +151,49 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
         elif m.terminal_extension_deg and m.terminal_extension_deg > 10.0:
             cv_rom_deficit = True
 
-    # 3. Formulate Severity Grade & Diagnosis
+    # 3. Formulate Severity Grade & Clear Clinical Diagnosis
     if cv_severe_loss or has_high_tenderness:
         severity_grade = "Moderate to Severe"
-    elif cv_rom_deficit or has_radiating_neuropathy:
+    elif cv_rom_deficit or is_sciatica or has_radiating_neuropathy:
         severity_grade = "Moderate"
     else:
         severity_grade = "Mild to Moderate"
 
     if has_gout:
-        clinical_diagnosis = f"{side.title()} {body_part_name} Acute Gouty Arthritis / Hyperuricemic Joint Inflammation"
+        clinical_diagnosis = f"{side.title()} {body_part_name} Acute Gouty Arthritis / गाउट (यूरिक एसिड जोड़ सूजन)"
+    elif is_sciatica:
+        clinical_diagnosis = f"{side.title()} L4-S1 Lumbar Disc Herniation with Sciatica / साइटिका (कमर से पैर तक नस दबने का तेज दर्द)"
+    elif is_piriformis:
+        clinical_diagnosis = f"{side.title()} Piriformis Syndrome / Deep Gluteal Sciatica (कूल्हे की मांसपेशी में नस दबना - फॉल्स सायटिका)"
+    elif is_full_spine_axial:
+        clinical_diagnosis = f"Axial Cervico-Thoraco-Lumbar Kinetic Chain Strain / संपूर्ण रीढ़ का तनाव (सिर पर भारी बोझ व झुककर काम करने से गर्दन से कमर व कूल्हे तक खिंचाव)"
+    elif is_cervical_radiculopathy:
+        clinical_diagnosis = f"{side.title()} Cervical Spondylosis with C6-C7 Radiculopathy / सर्वाइकल स्पॉन्डिलाइटिस (गर्दन की नस दबने से हाथ में झुनझुनी)"
+    elif is_lumbar_stenosis:
+        clinical_diagnosis = f"Lumbar Spinal Canal Stenosis with Neurogenic Claudication / स्पाइनल कैनाल स्टेनोसिस (चलने पर पैरों में भारीपन व दर्द)"
+    elif is_peripheral_neuropathy:
+        clinical_diagnosis = f"{side.title()} Symmetrical Peripheral Neuropathy / नसों की कमजोरी (पैरों व तलवों में जलन, सुन्नपन व झुनझुनी)"
+    elif is_calf_cramps:
+        clinical_diagnosis = f"{side.title()} Gastrocnemius Nocturnal Muscle Cramps & Venous Stasis / पिंडलियों में रात की ऐंठन व भारीपन"
     elif has_radiating_neuropathy:
         clinical_diagnosis = f"{side.title()} {body_part_name} Peripheral Neuropathy / Radiculopathy ({primary_muscle})"
     elif has_acute_spasm:
-        clinical_diagnosis = f"{side.title()} {body_part_name} Acute Myofascial Strain with Paraspinal Muscular Spasm"
+        clinical_diagnosis = f"{side.title()} {body_part_name} Acute Myofascial Strain with Paraspinal Muscular Spasm (मांसपेशी की तेज ऐंठन)"
     elif has_swelling_effusion:
-        clinical_diagnosis = f"{side.title()} {body_part_name} Joint Derangement with Reactive Synovial Effusion & Edema"
+        clinical_diagnosis = f"{side.title()} {body_part_name} Joint Derangement with Reactive Synovial Effusion & Edema (जोड़ में सूजन व पानी भरना)"
     elif has_gi:
-        clinical_diagnosis = f"Acute Enteric Water-Borne Syndrome with {body_part_name} Abdominal Colic"
+        clinical_diagnosis = f"Acute Enteric Water-Borne Syndrome with {body_part_name} Abdominal Colic (पेट दर्द व आंतों का संक्रमण)"
     elif has_respiratory:
-        clinical_diagnosis = f"Reactive Bronchospastic Airway Irritation / Chulha Smoke Cough Syndrome"
+        clinical_diagnosis = f"Reactive Bronchospastic Airway Irritation / Chulha Smoke Cough Syndrome (धुएं से सांस व खांसी का विकार)"
     elif has_skin:
-        clinical_diagnosis = f"{side.title()} {body_part_name} Fungal Dermatophytosis / Inflammatory Dermatosis"
+        clinical_diagnosis = f"{side.title()} {body_part_name} Fungal Dermatophytosis / Inflammatory Dermatosis (दाद, खाज व खुजली)"
     else:
         clinical_diagnosis = f"{side.title()} {body_part_name} Acute Mechanical Dysfunction & Strain ({primary_muscle})"
 
     # 4. Automatically Prescribe Precise Medications (Purnea Regional Pharmacopeia)
     meds: List[MedicationPrescription] = []
 
-    # (A) Primary Anti-inflammatory / Analgesic
+    # (A) Primary Anti-inflammatory / Analgesic (Zerodol-SP)
     if not has_gi:
         meds.append(
             MedicationPrescription(
@@ -174,22 +247,22 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
             )
         )
 
-    # (D) Muscle Relaxant (for spasms, back, spine, calf, neck)
-    if has_acute_spasm or has_high_tenderness:
+    # (D) Muscle Relaxant (for Sciatica, Piriformis, Spasms, Full Spine, Neck)
+    if is_sciatica or is_piriformis or is_full_spine_axial or has_acute_spasm or has_high_tenderness:
         meds.append(
             MedicationPrescription(
                 name="Tab. Myoril 4 mg (Thiocolchicoside 4 mg)",
                 form="Oral Capsule",
                 dosage="1 capsule (4 mg)",
                 frequency="1 - 0 - 1 (Twice daily after meals / सुबह और रात खाने के बाद)",
-                duration="3 to 5 days",
-                how_to_use="खाने के बाद सादे पानी से लें। यह जकड़ी हुई मांसपेशियों को ढीला करके दर्द में राहत देती है।",
+                duration="5 days",
+                how_to_use="सुबह और रात खाना खाने के बाद सादे पानी से लें। यह जकड़ी हुई नसों और मांसपेशियों की ऐंठन को ढीला करके दर्द में तुरंत राहत देती है।",
                 precautions="हल्की नींद आ सकती है। दवा लेने के बाद भारी मशीनरी या वाहन न चलाएं।"
             )
         )
 
-    # (E) Neuropathy / Sciatica / Nerve Nourishment
-    if has_radiating_neuropathy:
+    # (E) Neuropathy / Sciatica Nerve Regeneration (Pregabalin + Methylcobalamin B12)
+    if is_sciatica or is_piriformis or is_peripheral_neuropathy or is_cervical_radiculopathy or has_radiating_neuropathy:
         meds.append(
             MedicationPrescription(
                 name="Tab. Pregeb-M / Maxgalin-M (Pregabalin 75 mg + Methylcobalamin 750 mcg)",
@@ -197,12 +270,26 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
                 dosage="1 capsule",
                 frequency="0 - 0 - 1 (Once daily at bedtime / रात को सोते समय)",
                 duration="15 to 30 days",
-                how_to_use="रात को खाना खाने के बाद सोने से ठीक पहले 1 कैप्सूल लें। नसों की सूजन ठीक करने और नसों को पोषण देने में मददगार है।",
-                precautions="शुरुआत में चक्कर या सुस्ती आ सकती है, इसलिए केवल रात को ही लें।"
+                how_to_use="रात को खाना खाने के बाद सोने से ठीक पहले 1 कैप्सूल पानी से लें। यह दबी हुई नस की सूजन खत्म करती है, करंट जैसा दर्द रोकती है और नस को पोषण देकर ठीक करती है।",
+                precautions="शुरुआत के 2-3 दिन सुबह हल्की सुस्ती या चक्कर आ सकता है, इसलिए केवल रात को ही लें। कोर्स बीच में न छोड़ें।"
             )
         )
 
-    # (F) Severe Effusion / Edema Resolution (Chymoral Forte)
+    # (F) Bone, Joint & Spine Remineralization (Shelcal-500 for full spine axial strain / cramps / OA)
+    if is_full_spine_axial or is_calf_cramps or ("KNEE" in region_id and age > 40):
+        meds.append(
+            MedicationPrescription(
+                name="Tab. Shelcal-500 (Elemental Calcium 500 mg + Vitamin D3 250 IU)",
+                form="Oral Tablet",
+                dosage="1 tablet",
+                frequency="0 - 1 - 0 (Once daily after lunch / दोपहर खाने के बाद)",
+                duration="30 days",
+                how_to_use="दोपहर का खाना खाने के बाद 1 गोली पानी से लें। हड्डियों की कमजोरी दूर करती है और पिंडलियों में नस चढ़ना व कमर दर्द रोकती है।",
+                precautions="गुर्दे में पथरी (Kidney Stone) के मरीज डॉक्टर से सलाह लेकर ही लें।"
+            )
+        )
+
+    # (G) Severe Effusion / Edema Resolution (Chymoral Forte)
     if has_swelling_effusion or cv_severe_loss:
         meds.append(
             MedicationPrescription(
@@ -216,60 +303,21 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
             )
         )
 
-    # (G) High Uric Acid / Gout
+    # (H) High Uric Acid / Gout
     if has_gout:
         meds.append(
             MedicationPrescription(
-                name="Tab. Febutaz 40 / Feburic 40 (Febuxostat 40 mg)",
+                name="Tab. Zyloric 100 mg (Allopurinol 100 mg)",
                 form="Oral Tablet",
-                dosage="1 tablet (40 mg)",
-                frequency="1 - 0 - 0 (Once daily after breakfast / सुबह नाश्ते के बाद)",
+                dosage="1 tablet (100 mg)",
+                frequency="1 - 0 - 0 (Once daily after breakfast / सुबह नाश्ते बाद)",
                 duration="30 days",
-                how_to_use="रोज सुबह नाश्ते के बाद 1 गोली पानी से लें। खून में यूरिक एसिड कम करती है। साथ में दिन में 3-4 लीटर पानी पिएं।",
-                precautions="दाल, पालक, मशरूम और रेड मीट का सेवन कम करें।"
+                how_to_use="सुबह नाश्ते के बाद पर्याप्त पानी के साथ लें। दिन भर में कम से कम 2.5 से 3 लीटर पानी जरूर पिएं।",
+                precautions="तीव्र दर्द शुरू होने के समय तुरंत न शुरू करें; त्वचा पर लाल दाने होने पर तुरंत रोकें।"
             )
         )
 
-    # (H) Breakthrough Pain / Fever
-    if has_high_tenderness or has_fever:
-        meds.append(
-            MedicationPrescription(
-                name="Tab. Dolo 650 mg (Paracetamol 650 mg)",
-                form="Oral Tablet",
-                dosage="1 tablet (650 mg)",
-                frequency="SOS (जब तेज दर्द या बुखार हो, जरूरत पड़ने पर)",
-                duration="As needed (3-5 days)",
-                how_to_use="खाने के बाद सादे पानी से लें। दो खुराक के बीच कम से कम 6 घंटे का अंतर रखें। 24 घंटे में 3 से अधिक गोली न लें।",
-                precautions="शराब के साथ या अन्य पैरासिटामोल वाली दवा के साथ न लें।"
-            )
-        )
-
-    # (I) Bone & Joint Support (Age >= 40 or Spine / Knee)
-    if (age >= 40 or "KNEE" in region_id or "SPINE" in region_id) and not has_gi:
-        meds.append(
-            MedicationPrescription(
-                name="Tab. Shelcal-500 (Calcium 500 mg + Vitamin D3 250 IU)",
-                form="Oral Tablet",
-                dosage="1 tablet",
-                frequency="0 - 1 - 0 (Once daily after lunch / दोपहर खाने के बाद)",
-                duration="30 days",
-                how_to_use="दोपहर का भोजन करने के तुरंत बाद 1 गिलास पानी के साथ लें। हड्डियों को मजबूत करता है।",
-                precautions="आयरन (खून) की गोली के साथ न लें; दोनों में कम से कम 2-3 घंटे का अंतर रखें।"
-            )
-        )
-        meds.append(
-            MedicationPrescription(
-                name="Sachet Calcirol 60,000 IU (Cholecalciferol / Vitamin D3)",
-                form="Sachet / Powder",
-                dosage="1 sachet (60,000 IU)",
-                frequency="हफ्ते में 1 बार (Every Sunday with warm milk / हर रविवार दूध के साथ)",
-                duration="6 to 8 weeks",
-                how_to_use="1 गिलास गुनगुने दूध में 1 पूरा पाउच अच्छी तरह घोलकर हफ्ते में केवल एक बार पिएं।",
-                precautions="रोजाना बिल्कुल न लें, हफ्ते में सिर्फ एक निश्चित दिन ही लें।"
-            )
-        )
-
-    # (J) Gastrointestinal Protocol
+    # (I) Gastrointestinal Protocol
     if has_gi:
         meds.append(
             MedicationPrescription(
@@ -294,7 +342,7 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
             )
         )
 
-    # (K) Respiratory Protocol
+    # (J) Respiratory Protocol
     if has_respiratory:
         meds.append(
             MedicationPrescription(
@@ -319,7 +367,7 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
             )
         )
 
-    # (L) Dermatological Fungal Protocol
+    # (K) Dermatological Fungal Protocol
     if has_skin:
         meds.append(
             MedicationPrescription(
@@ -344,177 +392,357 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
             )
         )
 
-    # 5. Targeted Rehabilitation & Physical Therapy Exercises
-    if "KNEE" in region_id or "THIGH" in region_id:
+    # 5. Targeted Evidence-Based Curative Rehabilitation Exercises (कसरत व व्यायाम)
+    if is_sciatica:
         exercises = [
             ExercisePrescription(
-                name="Isometric Quadriceps Sets (Quad Sets)",
+                name="Sciatic Nerve Flossing / Neural Mobilization (सायटिक नर्व ग्लाइडिंग कसरत)",
+                target_area="Sciatic Nerve Trunk (L4, L5, S1)",
+                sets_reps="2 sets of 10 smooth gliding repetitions",
+                frequency="2 to 3 times daily (सुबह, दोपहर, शाम)",
+                how_to_perform="कुर्सी पर सीधे बैठें। प्रभावित पैर के घुटने को सीधा करें और पंजे को ऊपर छत की तरफ खींचते हुए सिर को ऊपर उठाएं (आसमान देखें)। फिर पैर को नीचे मोड़ें और ठुड्डी को नीचे छाती से लगाएं। इस क्रिया को बिना झटका दिए धीरे-धीरे 10 बार दोहराएं। यह दबी हुई नस को फ्री करता है।",
+                hold_duration_sec=2,
+                precautions="तेज झटका न दें; यदि बहुत तेज करंट जैसा दर्द दौड़े तो गति धीमी करें।"
+            ),
+            ExercisePrescription(
+                name="McKenzie Prone Press-Up / Cobra Stretch (प्रोन एक्सटेंशन - गद्दी हटाने का व्यायाम)",
+                target_area="L4-L5, L5-S1 Intervertebral Discs & Spinal Extensors",
+                sets_reps="3 sets of 10 repetitions",
+                frequency="Morning, Midday & Night (दिन में 3 बार)",
+                how_to_perform="पेट के बल सख्त बिस्तर या तख्त पर लेटें। हाथों को कंधों के नीचे रखें और धीरे-धीरे छाती को ऊपर उठाएं जबकि कमर और कूल्हा बिल्कुल ढीला बिस्तर पर रहे। ऊपर 3 सेकंड रुकें, फिर धीरे से नीचे आएं। 10 बार दोहराएं। यह खिसकी हुई गद्दी को नस से पीछे हटाता है।",
+                hold_duration_sec=3,
+                precautions="कमर को जबरन ज्यादा न मोड़ें; अगर दर्द पैर से हटकर कमर में आ जाए (Centralization) तो यह बहुत अच्छा संकेत है।"
+            ),
+            ExercisePrescription(
+                name="Supine Knee-to-Opposite-Shoulder Stretch (क्रॉस लेग कूल्हा खिंचाव)",
+                target_area="Gluteal Deep External Rotators & Piriformis",
+                sets_reps="3 sets of 25-second holds",
+                frequency="Twice daily",
+                how_to_perform="पीठ के बल लेटें। दर्द वाले पैर के घुटने को दोनों हाथों से पकड़कर उल्टे कंधे (विपरीत दिशा) की तरफ धीरे-धीरे खींचें जब तक कूल्हे के पिछले हिस्से में गहरा व आरामदेह खिंचाव महसूस न हो। 25 सेकंड तक रोकें, फिर ढीला छोड़ें।",
+                hold_duration_sec=25,
+                precautions="घुटने की कटोरी पर सीधा दबाव न डालें; जांघ के पीछे से पकड़ें।"
+            )
+        ]
+    elif is_piriformis:
+        exercises = [
+            ExercisePrescription(
+                name="Figure-4 Piriformis Supine Stretch (फिगर-4 पिरिफोर्मिस स्ट्रेच - कूल्हे की नस का खिंचाव)",
+                target_area="Deep Piriformis Muscle & Sciatic Notch",
+                sets_reps="3 sets of 30-second holds each side",
+                frequency="3 times daily",
+                how_to_perform="पीठ के बल लेटें। दर्द वाले पैर के टखने को दूसरे घुटने के ऊपर रखकर '4' का आकार बनाएं। दूसरे पैर की जांघ को दोनों हाथों से पकड़कर अपनी छाती की तरफ धीरे-धीरे खींचें जब तक कूल्हे के पिछले हिस्से में गहरा खिंचाव न लगे। 30 सेकंड रोकें।",
+                hold_duration_sec=30,
+                precautions="कमर को बिस्तर से न उठाएं; खिंचाव कूल्हे की गहराई में महसूस होना चाहिए।"
+            ),
+            ExercisePrescription(
+                name="Seated Piriformis Chair Stretch (कुर्सी पर बैठकर कूल्हे का खिंचाव)",
+                target_area="Piriformis & Deep Hip Rotators",
+                sets_reps="3 sets of 20-second holds",
+                frequency="Twice daily",
+                how_to_perform="कुर्सी पर सीधे बैठें। दर्द वाले पैर को मोड़कर दूसरे घुटने पर रखें। रीढ़ की हड्डी को बिल्कुल सीधा रखते हुए हल्का सा आगे की तरफ झुकें (कमर को झुकाए बिना)। कूल्हे के पीछे गहरा खिंचाव महसूस होगा। 20 सेकंड रोकें।",
+                hold_duration_sec=20,
+                precautions="पीठ को गोल न करें; छाती को आगे निकालें।"
+            ),
+            ExercisePrescription(
+                name="Gluteal Bridge with Gentle Pelvic Squeeze (पेल्विक ब्रिज व्यायाम)",
+                target_area="Gluteus Maximus & Pelvic Stabilizers",
+                sets_reps="2 sets of 12 repetitions",
+                frequency="Twice daily",
+                how_to_perform="पीठ के बल लेटकर दोनों घुटने मोड़ें और पैर फर्श पर रखें। नितंब की मांसपेशियों को सिकोड़ते हुए कूल्हे को ऊपर उठाएं जब तक घुटना, कूल्हा और कंधा एक सीध में न आ जाएं। ऊपर 3 सेकंड रोकें, फिर धीरे से नीचे लाएं।",
+                hold_duration_sec=3,
+                precautions="कमर को बहुत ज्यादा ऊपर न उछालें।"
+            )
+        ]
+    elif is_full_spine_axial:
+        exercises = [
+            ExercisePrescription(
+                name="McKenzie Chin Tucks & Cervical Retraction (गर्दन सीधा करने का चिन-टक व्यायाम)",
+                target_area="Cervical Spine, Deep Neck Flexors & Suboccipitals",
+                sets_reps="3 sets of 10 repetitions (5-second hold)",
+                frequency="3 to 4 times daily (हर 3-4 घंटे में)",
+                how_to_perform="सीधे बैठें, कंधे पीछे रखें। सिर को झुकाए बिना ठुड्डी को सीधा पीछे की तरफ खींचें (जैसे डबल चिन बना रहे हों)। 5 सेकंड रोकें, फिर सामान्य स्थिति में आएं। 10 बार दोहराएं। सिर पर भारी बोझ उठाने व झुककर काम करने से बिगड़े पॉस्चर को तुरंत ठीक करता है।",
+                hold_duration_sec=5,
+                precautions="सिर को नीचे न झुकाएं, ठुड्डी को सीधे पीछे खींचें।"
+            ),
+            ExercisePrescription(
+                name="Cat-Camel Full Spine Mobilization (बिल्ली-ऊंट रीढ़ की हड्डी का लचीलापन)",
+                target_area="Entire Spinal Column (Cervical, Thoracic, Lumbar, Sacrum)",
+                sets_reps="2 sets of 10 gentle smooth cycles",
+                frequency="Morning and Night (सुबह उठकर व रात को)",
+                how_to_perform="दोनों हाथों और घुटनों के बल आएं (चौपाया स्थिति)। धीरे-धीरे बिल्ली की तरह पूरी रीढ़ को ऊपर छत की तरफ गोल करें और सिर नीचे झुकाएं। फिर धीरे-धीरे पेट को नीचे फर्श की तरफ लाएं और ऊपर देखें। गर्दन से कूल्हे तक पूरी रीढ़ की 33 हड्डियों में रक्त संचार व लचीलापन आता है।",
+                hold_duration_sec=3,
+                precautions="तेज झटके से न करें; धीमी व सहज सांस के साथ करें।"
+            ),
+            ExercisePrescription(
+                name="Thoracolumbar Prone Extension (पीठ व कमर की मांसपेशियों की मजबूती)",
+                target_area="Erector Spinae & Scapular Retractors",
+                sets_reps="3 sets of 8 repetitions",
+                frequency="Twice daily",
+                how_to_perform="पेट के बल लेटें, हाथों को बगल में रखें। सिर, छाती और दोनों हाथों को धीरे-धीरे बिस्तर से 2-3 इंच ऊपर उठाएं और कंधों की हड्डियों को पीछे आपस में दबाएं। 4 सेकंड रोकें, फिर धीरे से नीचे आएं।",
+                hold_duration_sec=4,
+                precautions="गर्दन पर बहुत ज्यादा जोर न दें; छाती उठाएं।"
+            )
+        ]
+    elif is_cervical_radiculopathy or ("CERVICAL" in region_id or "NECK" in region_id):
+        exercises = [
+            ExercisePrescription(
+                name="McKenzie Chin Tucks & Cervical Retraction (गर्दन का चिन-टक व्यायाम)",
+                target_area="Cervical Spine & Suboccipital Extensors",
+                sets_reps="3 sets of 10 repetitions (5-second hold)",
+                frequency="3 times daily",
+                how_to_perform="सीधे बैठें। सिर को आगे-पीछे झुकाए बिना ठुड्डी को सीधे पीछे की तरफ धकेलें। 5 सेकंड रोकें, फिर ढीला छोड़ें। 10 बार दोहराएं। दबी हुई नस का दबाव तुरंत कम होता है।",
+                hold_duration_sec=5,
+                precautions="सिर को नीचे छाती से न लगाएं।"
+            ),
+            ExercisePrescription(
+                name="Upper Trapezius & Levator Scapulae Gentle Stretch (गर्दन व कंधे का खिंचाव)",
+                target_area="Trapezius & Levator Scapulae",
+                sets_reps="3 sets of 20-second holds each side",
+                frequency="Twice daily",
+                how_to_perform="सीधे बैठकर एक हाथ से कुर्सी पकड़ें। दूसरे हाथ से सिर को धीरे से विपरीत दिशा में झुकाएं जब तक गर्दन के किनारे हल्का खिंचाव न लगे। 20 सेकंड रोकें।",
+                hold_duration_sec=20,
+                precautions="जबरन जोर से न खींचें।"
+            ),
+            ExercisePrescription(
+                name="Scapular Retraction & Squeeze (कंधों को पीछे खींचने की कसरत)",
+                target_area="Rhomboids & Mid-Trapezius",
+                sets_reps="3 sets of 10 repetitions",
+                frequency="Twice daily",
+                how_to_perform="कोहनी 90° मोड़कर दोनों कंधों की हड्डियों को पीछे आपस में सिकोड़ें जैसे बीच में पेंसिल पकड़ रहे हों। 5 सेकंड रोकें, फिर छोड़ें।",
+                hold_duration_sec=5,
+                precautions="कंधों को ऊपर कानों की तरफ न उचकाएं।"
+            )
+        ]
+    elif is_calf_cramps or ("CALF" in region_id or "ANKLE" in region_id or "SHIN" in region_id):
+        exercises = [
+            ExercisePrescription(
+                name="Gastrocnemius & Soleus Towel Stretch (पिंडली व नस का खिंचाव)",
+                target_area="Calf Muscle Belly & Achilles Tendon",
+                sets_reps="3 sets of 30-second holds",
+                frequency="3 times daily",
+                how_to_perform="बिस्तर पर पैर सीधा करके बैठें। एक तौलिए को मोड़कर पंजे के अगले हिस्से में फंसाएं। घुटने को बिल्कुल सीधा रखते हुए तौलिए के दोनों सिरों को अपनी तरफ धीरे से खींचें जब तक पिंडली में गहरा व मीठा खिंचाव न लगे। 30 सेकंड तक रोकें।",
+                hold_duration_sec=30,
+                precautions="झटका न दें; घुटने को मुड़ने न दें।"
+            ),
+            ExercisePrescription(
+                name="Ankle Alphabet & Circulation Pumps (पैरों का सर्कुलेशन व ऐंठन रोकने की कसरत)",
+                target_area="Ankle Joint Complex & Venous Calf Pump",
+                sets_reps="2 full alphabet cycles (A to Z) + 20 ankle pumps",
+                frequency="Twice daily (सोने से पहले जरूर करें)",
+                how_to_perform="पैर को थोड़ा ऊपर उठाकर बैठें या लेटें। सिर्फ अपने पैर के अंगूठे से हवा में A से Z तक बड़े अक्षर बनाएं, और पंजे को 20 बार ऊपर-नीचे चलाएं। यह नसों में जमा खून तेजी से ऊपर भेजता है और रात को नस चढ़ने से रोकता है।",
+                hold_duration_sec=0,
+                precautions="धीमी गति और पूरे घुमाव के साथ करें।"
+            ),
+            ExercisePrescription(
+                name="Bilateral Heel Raises with Chair Support (एड़ी उठाने की कसरत)",
+                target_area="Calf Musculature & Achilles Load Tolerance",
+                sets_reps="3 sets of 10 repetitions",
+                frequency="Twice daily",
+                how_to_perform="कुर्सी पकड़कर खड़े हों। दोनों पैरों के पंजों पर धीरे-धीरे ऊपर उठें जितना ऊंचा हो सके। ऊपर 2 सेकंड रुकें, फिर धीरे-धीरे 3 सेकंड में नीचे आएं।",
+                hold_duration_sec=2,
+                precautions="संतुलन के लिए कुर्सी का सहारा जरूर रखें।"
+            )
+        ]
+    elif is_peripheral_neuropathy:
+        exercises = [
+            ExercisePrescription(
+                name="Active Ankle Alphabet & Foot Intrinsic Strengthening (पंजों की सक्रियता)",
+                target_area="Intrinsic Foot Muscles & Plantar Nerves",
+                sets_reps="2 cycles of A to Z alphabet + towel scrunches",
+                frequency="Twice daily",
+                how_to_perform="बैठकर फर्श पर एक रुमाल या छोटा तौलिया बिछाएं। पैर की उंगलियों से उसे सिकोड़कर पकड़ने की कोशिश करें। फिर पैर को ऊपर उठाकर हवा में A से Z बनाएं।",
+                hold_duration_sec=0,
+                precautions="पैर में सुन्नपन हो तो चोट से बचने के लिए साफ सतह पर ही करें।"
+            ),
+            ExercisePrescription(
+                name="Gastrocnemius Towel Stretch & Plantar Fasciculation Relief",
+                target_area="Calf & Plantar Fascia",
+                sets_reps="3 sets of 25-second holds",
+                frequency="Twice daily",
+                how_to_perform="पैर सीधा रखकर तौलिए से पंजे को अपनी तरफ खींचें। 25 सेकंड रोकें।",
+                hold_duration_sec=25,
+                precautions="आराम से करें।"
+            )
+        ]
+    elif "KNEE" in region_id or "THIGH" in region_id:
+        exercises = [
+            ExercisePrescription(
+                name="Isometric Quadriceps Sets (Quad Sets - जांघ मजबूत करने की कसरत)",
                 target_area="Anterior Thigh (Quadriceps Femoris)",
                 sets_reps="3 sets of 10 repetitions",
                 frequency="Twice daily (Morning & Evening)",
-                how_to_perform="Lie flat or sit with your leg straight out on a firm bed. Press the back of your knee down firmly against the mattress, tightening the muscles on top of your thigh. Hold tension for 5 seconds, breathe normally, then relax for 3 seconds. Repeat 10 times.",
+                how_to_perform="सख्त बिस्तर पर पैर सीधा करके लेटें या बैठें। घुटने के पिछले हिस्से को बिस्तर की तरफ जोर से नीचे दबाएं, जिससे जांघ के ऊपर की मांसपेशी सख्त हो जाए। 5 सेकंड रोकें, फिर 3 सेकंड ढीला छोड़ें। 10 बार करें। घुटने का दर्द जड़ से खत्म करता है।",
                 hold_duration_sec=5,
-                precautions="Stop immediately if sharp anterior joint pain occurs."
+                precautions="सांस सामान्य रखें; अचानक झटका न दें।"
             ),
             ExercisePrescription(
-                name="Straight Leg Raise (SLR)",
+                name="Straight Leg Raise (SLR - पैर सीधा उठाने की कसरत)",
                 target_area="Rectus Femoris & Hip Flexors",
                 sets_reps="3 sets of 10 repetitions",
                 frequency="Twice daily",
-                how_to_perform="Lie on your back with the opposite knee bent and foot flat. Keep the affected leg completely straight, point toes toward ceiling, and smoothly raise leg about 12 inches (30 cm) off the bed. Hold for 3 seconds, then lower slowly. Do not arch lower back.",
+                how_to_perform="पीठ के बल लेटें। एक घुटना मोड़कर पैर फर्श पर रखें। दर्द वाले पैर को बिल्कुल सीधा रखते हुए बिस्तर से लगभग 1 फुट (30 सेमी) ऊपर उठाएं। 3 सेकंड रोकें, फिर धीरे से नीचे लाएं।",
                 hold_duration_sec=3,
-                precautions="Do not swing leg rapidly."
+                precautions="कमर को बिस्तर से न उठाएं।"
             ),
             ExercisePrescription(
-                name="Seated Active Terminal Knee Extension",
-                target_area="Vastus Medialis Oblique (VMO)",
+                name="Seated Active Terminal Knee Extension (कुर्सी पर घुटना सीधा करने की कसरत)",
+                target_area="Vastus Medialis Oblique (VMO - घुटने की अंदरूनी मांसपेशी)",
                 sets_reps="2 sets of 10 repetitions",
                 frequency="Twice daily",
-                how_to_perform="Sit upright on a sturdy chair with feet flat. Slowly straighten the affected leg until fully extended at the knee. Hold at terminal extension for 4 seconds, feeling the muscle above the kneecap contract. Slowly lower back to 90°.",
+                how_to_perform="कुर्सी पर सीधे बैठें। दर्द वाले पैर को धीरे-धीरे पूरा सीधा करें जब तक घुटना सीधा न हो जाए। घुटने के ऊपर की मांसपेशी को कसें। 4 सेकंड रोकें, फिर धीरे से नीचे लाएं।",
                 hold_duration_sec=4,
-                precautions="Do not hyperextend violently."
+                precautions="घुटने को झटके से पीछे न पटकें।"
             )
         ]
     elif "SHOULDER" in region_id or "ARM" in region_id:
         exercises = [
             ExercisePrescription(
-                name="Codman's Pendulum Gentle Mobilization",
+                name="Codman's Pendulum Gentle Mobilization (पेंडुलम झूला कसरत)",
                 target_area="Glenohumeral Joint & Rotator Cuff",
                 sets_reps="2 to 3 minutes continuously (Clockwise & Counter-clockwise)",
                 frequency="3 times daily",
-                how_to_perform="Bend forward at waist (45-60°) resting unaffected hand on a sturdy table. Let affected arm dangle freely under gravity. Sway body gently to initiate smooth circular motion without actively contracting shoulder muscles.",
+                how_to_perform="कमर से 45° आगे झुकें और सही हाथ को मेज पर टिकाएं। दर्द वाले हाथ को नीचे ढीला लटकने दें। पूरे शरीर को धीरे-धीरे हिलाएं जिससे हाथ बिना जोर लगाए अपने आप गोल-गोल घूमे।",
                 hold_duration_sec=0,
-                precautions="Do not lift arm actively; let gravity do the swinging."
+                precautions="हाथ की मांसपेशियों से ताकत न लगाएं; गुरुत्वाकर्षण से झूलने दें।"
             ),
             ExercisePrescription(
-                name="Passive Wall Crawl / Finger Walk",
+                name="Passive Wall Crawl / Finger Walk (दीवार पर उंगलियां चलाने की कसरत)",
                 target_area="Shoulder Flexion Range of Motion",
                 sets_reps="3 sets of 8 repetitions",
                 frequency="Twice daily",
-                how_to_perform="Stand facing a wall at arm's length. Place fingertips on the wall at chest level. Walk fingers slowly up the wall as high as comfortably possible without shrugging shoulder. Hold top stretch for 5 seconds, then walk down.",
+                how_to_perform="दीवार की तरफ मुंह करके खड़े हों। उंगलियों को दीवार पर रखकर धीरे-धीरे ऊपर मकड़ी की तरह चलाएं जितना ऊंचा आसानी से जा सके। ऊपर 5 सेकंड रुकें, फिर नीचे लाएं।",
                 hold_duration_sec=5,
-                precautions="Avoid shrugging shoulders up to ears."
+                precautions="कंधे को उचकाकर कान के पास न लाएं।"
             ),
             ExercisePrescription(
-                name="Scapular Retraction & Squeeze",
+                name="Scapular Retraction & Squeeze (कंधे की हड्डियों को सिकोड़ना)",
                 target_area="Rhomboids & Mid-Trapezius Stabilizers",
                 sets_reps="3 sets of 12 repetitions",
                 frequency="Twice daily",
-                how_to_perform="Sit upright with elbows bent at 90° at your sides. Gently squeeze shoulder blades backward and down as if pinching a pencil between them. Hold for 5 seconds while breathing normally, then relax.",
+                how_to_perform="सीधे बैठें, कोहनी 90° मोड़ें। दोनों कंधों की हड्डियों को पीछे की तरफ दबाएं जैसे पीठ में पेंसिल फंसा रहे हों। 5 सेकंड रोकें, फिर छोड़ें।",
                 hold_duration_sec=5,
-                precautions="Keep neck relaxed."
+                precautions="गर्दन को ढीला रखें।"
             )
         ]
     elif "WRIST" in region_id or "FOREARM" in region_id or "ELBOW" in region_id:
         exercises = [
             ExercisePrescription(
-                name="Passive Wrist Extensor & Flexor Stretches",
+                name="Passive Wrist Extensor & Flexor Stretches (कलाई व अग्रबाहु का खिंचाव)",
                 target_area="Forearm Common Extensors & Flexor Tendons",
                 sets_reps="3 sets of 20-second holds",
                 frequency="3 times daily",
-                how_to_perform="Extend arm in front of you with elbow straight, palm down. Use opposite hand to gently bend your wrist downward until you feel a gentle stretch across top of forearm. Hold for 20 seconds. Next, turn palm up and pull fingers backward toward your body for 20 seconds.",
+                how_to_perform="हाथ आगे सीधा रखें, हथेली नीचे। दूसरे हाथ से पंजे को नीचे की तरफ मोड़ें जब तक बाजू के ऊपर खिंचाव न लगे। 20 सेकंड रोकें। फिर हथेली ऊपर करके उंगलियों को पीछे खींचें।",
                 hold_duration_sec=20,
-                precautions="Do not force into painful pinching."
+                precautions="तेज चुभन होने पर जोर न लगाएं।"
             ),
             ExercisePrescription(
-                name="Eccentric Wrist Extension with Lightweight",
-                target_area="Extensor Carpi Radialis Brevis (Forearm Muscle)",
-                sets_reps="3 sets of 10 repetitions",
-                frequency="Once daily",
-                how_to_perform="Rest forearm on table with wrist hanging over edge holding a 500ml water bottle (palm down). Use other hand to lift wrist up, then release other hand and SLOWLY lower the bottle down over 4 seconds using only the affected wrist. Repeat.",
-                hold_duration_sec=4,
-                precautions="Use lightweight only; avoid heavy dumbbells."
-            ),
-            ExercisePrescription(
-                name="Median Nerve Gliding Exercise",
+                name="Median Nerve Gliding Exercise (कलाई की नस मोबिलाइज़ेशन)",
                 target_area="Carpal Tunnel & Volar Forearm",
                 sets_reps="5 slow cycles",
                 frequency="Twice daily",
-                how_to_perform="Start with a gentle fist, then straighten fingers upright. Extend wrist backward. Turn palm facing up toward ceiling. Gently pull thumb outward with opposite hand. Maintain each position smoothly without jerking.",
+                how_to_perform="मुट्ठी बनाएं, फिर उंगलियां सीधी करें। कलाई को पीछे मोड़ें, अंगूठे को बाहर खींचें। हाथ में सुन्नपन तुरंत कम होता है।",
                 hold_duration_sec=3,
-                precautions="Stop if pins and needles increase."
-            )
-        ]
-    elif "CALF" in region_id or "ANKLE" in region_id or "SHIN" in region_id:
-        exercises = [
-            ExercisePrescription(
-                name="Gastrocnemius & Soleus Towel Stretch",
-                target_area="Calf Muscle Belly & Achilles Tendon",
-                sets_reps="3 sets of 30-second holds",
-                frequency="3 times daily",
-                how_to_perform="Sit with leg straight out. Loop a rolled towel around ball of foot. Keeping knee straight, gently pull towel toward body until feeling a comfortable stretch in calf. Hold 30 seconds.",
-                hold_duration_sec=30,
-                precautions="Do not bounce."
-            ),
-            ExercisePrescription(
-                name="Ankle Alphabet Multi-Planar Mobilization",
-                target_area="Ankle Joint Complex (Talocrural & Subtalar)",
-                sets_reps="1 full alphabet cycle (A to Z)",
-                frequency="Twice daily",
-                how_to_perform="Sit with leg elevated. Trace all capital letters of the alphabet in the air using only your big toe, moving ankle through full comfortable range.",
-                hold_duration_sec=0,
-                precautions="Move slowly with control."
-            ),
-            ExercisePrescription(
-                name="Bilateral Heel Raises with Chair Support",
-                target_area="Calf Musculature & Achilles Load Tolerance",
-                sets_reps="3 sets of 10 repetitions",
-                frequency="Twice daily",
-                how_to_perform="Stand holding chair for balance. Rise up onto balls of both feet as high as possible. Pause at top for 2 seconds, then lower slowly over 3 seconds.",
-                hold_duration_sec=2,
-                precautions="Ensure firm balance support."
+                precautions="झुनझुनी ज्यादा बढ़े तो रुकें।"
             )
         ]
     elif "LUMBAR" in region_id or "SPINE" in region_id or "BACK" in region_id:
         exercises = [
             ExercisePrescription(
-                name="Pelvic Tilts in Supine",
+                name="Pelvic Tilts in Supine (कमर सीधी करने की कसरत)",
                 target_area="Lumbar Spine & Transversus Abdominis",
                 sets_reps="3 sets of 10 repetitions",
                 frequency="Twice daily",
-                how_to_perform="Lie on back with knees bent and feet flat on bed. Tighten abdominal muscles and flatten lower back against bed by tilting pelvis backward. Hold for 5 seconds while breathing smoothly, then relax.",
+                how_to_perform="पीठ के बल लेटकर घुटने मोड़ें और पैर बिस्तर पर रखें। पेट की मांसपेशियों को कसें और कमर के निचले हिस्से को बिस्तर पर बिल्कुल चपटा दबाएं। 5 सेकंड रोकें, फिर ढीला छोड़ें।",
                 hold_duration_sec=5,
-                precautions="Do not hold your breath."
+                precautions="सांस न रोकें।"
             ),
             ExercisePrescription(
-                name="Cat-Camel Spinal Mobilization",
+                name="Cat-Camel Spinal Mobilization (बिल्ली-ऊंट रीढ़ की कसरत)",
                 target_area="Thoracolumbar Spine",
                 sets_reps="2 sets of 10 gentle cycles",
                 frequency="Morning and Night",
-                how_to_perform="On hands and knees with wrists under shoulders. Slowly arch back upward toward ceiling like a cat, letting head drop down. Then slowly let belly sink toward floor, arching spine down and looking forward. Move slowly without forcing into pain.",
+                how_to_perform="हाथों और घुटनों के बल आएं। धीरे-धीरे रीढ़ को ऊपर छत की तरफ गोल करें और सिर झुकाएं। फिर पेट को नीचे लाएं और ऊपर देखें। 10 बार करें।",
                 hold_duration_sec=3,
-                precautions="Avoid extreme spinal extension if sharp pain triggers."
+                precautions="तेज दर्द होने पर बहुत ज्यादा न झुकें।"
             ),
             ExercisePrescription(
-                name="Knee-to-Chest Gentle Decompression Stretch",
+                name="Knee-to-Chest Gentle Decompression Stretch (घुटने को छाती से लगाने का खिंचाव)",
                 target_area="Lower Back & Gluteal Fascia",
                 sets_reps="3 sets of 20-second holds each side",
                 frequency="Twice daily",
-                how_to_perform="Lie on back with knees bent. Gently grasp behind one knee and draw it up toward your chest until a comfortable stretch is felt in lower back/hip. Hold 20 seconds, relax, switch legs.",
+                how_to_perform="पीठ के बल लेटें। एक घुटने को जांघ के पीछे से पकड़कर छाती की तरफ धीरे-धीरे खींचें। 20 सेकंड रोकें, फिर दूसरे पैर से करें।",
                 hold_duration_sec=20,
-                precautions="Do not pull directly on the kneecap."
+                precautions="घुटने की कटोरी पर सीधा दबाव न डालें।"
             )
         ]
     else:
         exercises = [
             ExercisePrescription(
-                name="Sub-Maximal Isometric Contractions",
+                name="Sub-Maximal Isometric Contractions (मांसपेशियों को मजबूत करने की कसरत)",
                 target_area=f"{body_part_name} Musculature",
                 sets_reps="3 sets of 10 repetitions, 5-second hold",
                 frequency="Twice daily",
-                how_to_perform="Contract the muscles around the affected area against an immovable surface without moving the joint. Hold tension for 5 seconds, then relax for 3 seconds.",
+                how_to_perform="दर्द वाली जगह की मांसपेशियों को बिना जोड़ हिलाए 5 सेकंड तक हल्का कसें, फिर 3 सेकंड ढीला छोड़ें।",
                 hold_duration_sec=5,
-                precautions="Maintain normal breathing."
+                precautions="सांस सामान्य रखें।"
             ),
             ExercisePrescription(
-                name="Gentle Passive Range of Motion (PROM)",
+                name="Gentle Passive Range of Motion (जोड़ की सहज गति)",
                 target_area=f"{body_part_name} Joint & Soft Tissue",
                 sets_reps="2 sets of 10 smooth cycles",
                 frequency="Twice daily",
-                how_to_perform="Move the joint slowly through pain-free range without loading or carrying weight. Stop before sharp discomfort.",
+                how_to_perform="जोड़ को बिना वजन उठाए हल्के हाथ से सहज गति में धीरे-धीरे चलाएं।",
                 hold_duration_sec=0,
-                precautions="Stay within pain-free boundaries."
+                precautions="दर्द की सीमा में ही रहें।"
             )
+        ]
+
+    # 6. Practical Rural Home Care & Parhez (घरेलू देखभाल व दैनिक परहेज - Parhez)
+    if is_sciatica or is_piriformis:
+        home_care = [
+            "गर्म पानी की सिकाई (Hot Water Fomentation): पुरानी सायटिका व नस की जकड़न में दिन में 2-3 बार 15-20 मिनट गर्म पानी की थैली (Hot bag) से कमर व कूल्हे पर सिकाई करें। यदि ताजा चोट या तीव्र सूजन हो तो पहले 48 घंटे बरफ लगाएं।",
+            "सख्त बिस्तर पर शयन (Firm Sleeping Surface): बहुत ढीले, स्पंज वाले गद्दे पर बिल्कुल न सोएं। तख्त पर पतला गद्दा या दरी बिछाकर सोएं, और सोते समय घुटनों के नीचे एक तकिया जरूर रखें जिससे कमर की नस पर खिंचाव न आए।",
+            "चलने का नियम: लगातार लंबे समय तक बिस्तर पर न पड़े रहें (48 घंटे से ज्यादा बेड रेस्ट नुकसानदेह है)। हर 2 घंटे में घर के अंदर 5-10 मिनट धीरे-धीरे टहलें।"
+        ]
+        activity_mods = [
+            "जमीन से झुककर भारी वजन (पानी की बाल्टी, अनाज की बोरी) बिल्कुल न उठाएं — कुछ भी उठाना हो तो हमेशा घुटने मोड़कर बैठें फिर उठाएं।",
+            "सिर पर भारी बोझ (गठरी, धान की बोरी, पानी का घड़ा) उठाने से पूरी तरह परहेज रखें।",
+            "जमीन पर बहुत देर तक पालथी मारकर (चौकड़ी मारकर) या उकड़ू न बैठें — हमेशा कुर्सी या ऊंचे तख्त का इस्तेमाल करें।",
+            "पैंट की पीछे वाली जेब में बटुआ (पर्स) या मोबाइल रखकर कभी न बैठें, इससे कूल्हे की सायटिक नस दबती है।"
+        ]
+    elif is_full_spine_axial:
+        home_care = [
+            "गर्म सिकाई व भाप (Moist Heat Therapy): गर्दन से लेकर कमर तक दिन में 2 बार 15 मिनट गर्म पानी की बोतल या गर्म तौलिए से सिकाई करें। यह पूरी रीढ़ की मांसपेशियों की ऐंठन तुरंत शांत करता है।",
+            "सही तकिए का चुनाव (Ergonomic Neck Pillow): सोते समय बहुत ऊंचा या मोटा तकिया न लगाएं। केवल 2-3 इंच का पतला तकिया लगाएं जो गर्दन के प्राकृतिक मोड़ को सहारा दे।",
+            "सख्त तख्त पर विश्राम: पीठ के बल लेटकर दोनों घुटनों के नीचे एक तकिया रखें जिससे कमर और गर्दन दोनों को सहारा मिले।"
+        ]
+        activity_mods = [
+            "सिर पर भारी बोझ उठाना तुरंत बंद करें — यदि बोझ उठाना मजबूरी हो तो सिर पर मोटा कपड़ा (बीड़ा) रखें और वजन को दोनों हाथों में बांटें।",
+            "खेत में या घर पर लगातार 45 मिनट से ज्यादा एक ही मुद्रा में झुककर काम न करें — हर 45 मिनट पर 1 मिनट सीधे खड़े होकर कमर पर हाथ रखकर पीछे झुकें (Extension Reset)।",
+            "अचानक गर्दन या कमर को झटका देकर न मटकाएं और न ही किसी अप्रशिक्षित व्यक्ति से कमर पर पैर रखवाकर दबवाएं।"
+        ]
+    elif is_calf_cramps or is_peripheral_neuropathy:
+        home_care = [
+            "पैरों की गर्म पानी में सिकाई: रात को सोने से पहले 10 मिनट गुनगुने पानी में पैर डालकर रखें और पैरों के तलवों पर हल्के हाथ से तेल या जेल लगाएं।",
+            "पर्याप्त जल व ओआरएस (Hydration): दिन भर में 2.5 से 3 लीटर पानी पिएं। धूप व खेत में काम करने पर ओआरएस या नीबू-नमक का पानी जरूर पिएं।",
+            "ढीले व आरामदायक जूते/चप्पल: नंगे पैर कठोर जमीन या कंकड़ पर चलने से बचें।"
+        ]
+        activity_mods = [
+            "खेत में या दुकान पर लगातार घंटों तक बिना हिले-डुले खड़े न रहें — बीच-बीच में पंजों को ऊपर-नीचे चलाएं।",
+            "सोते समय पैरों को ऊपर की तरफ 2-3 इंच ऊंचा रखें (पैरों के नीचे पतला तकिया रखें) जिससे नसों का रक्त प्रवाह सुधरे।",
+            "पिंडलियों में जोर से मालिश न करवाएं।"
+        ]
+    else:
+        home_care = [
+            "बरफ की सिकाई (Cryotherapy): तीव्र दर्द व सूजन के पहले 48 घंटों में दिन में 3-4 बार 15-20 मिनट बरफ से सिकाई करें। 48 घंटे बाद गर्म सिकाई करें।",
+            "सापेक्षिक विश्राम (Relative Rest): भारी वजन उठाने, कूदने या बहुत तेज चलने से 5-7 दिन तक बचें।",
+            "सहारा व पट्टी (Support): दिन में चलते समय इलास्टिक बैंडेज या सपोर्टिव ब्रेस का प्रयोग करें।",
+            "पर्याप्त पोषण व जल: मांसपेशियों व जोड़ों की रिकवरी के लिए पर्याप्त पानी व पौष्टिक आहार लें।"
+        ]
+        activity_mods = [
+            "दर्द वाले हिस्से पर अचानक तेज झटका या भारी वजन न डालें।",
+            "लगातार 45 मिनट से अधिक एक ही स्थिति में बैठे या खड़े न रहें।",
+            "प्रभावित हिस्से पर पहले 3 दिनों तक जोर से मालिश न करें।"
         ]
 
     return FinalPrescription(
@@ -523,22 +751,12 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
         severity_grade=severity_grade,
         medications=meds,
         exercises=exercises,
-        home_care_measures=[
-            "Cryotherapy (बरफ की सिकाई): Apply ice pack wrapped in a damp towel for 15-20 minutes every 3-4 hours for the first 48 hours to reduce inflammation.",
-            "Relative Rest (विश्राम): Avoid strenuous sports, heavy lifting, or aggravating repetitive movements for 5-7 days.",
-            "Compression & Elevation (सहारा): Use an elastic compression wrap or ergonomic brace during daytime activity to support the injured soft tissue.",
-            "Hydration & Nutrition: Maintain adequate hydration and protein intake to support cellular tissue healing."
-        ],
-        activity_modifications=[
-            "Do NOT perform sudden explosive movements, jumping, or heavy weight-bearing on the affected side.",
-            "Avoid sitting or standing in static posture for more than 45 minutes continuously.",
-            "Do NOT receive aggressive deep-tissue massage over the acutely inflamed area during the first 72 hours."
-        ],
-        follow_up_advice="Review in orthopedic clinic in 7 to 10 days if functional pain does not improve by at least 50%, or sooner if symptoms worsen.",
-        emergency_warning="Seek IMMEDIATE emergency orthopedic attention if you experience: sudden severe inability to bear weight, visible joint deformity, progressive numbness/weakness in fingers or toes, or high fever with joint warmth.",
+        home_care_measures=home_care,
+        activity_modifications=activity_mods,
+        follow_up_advice="7 से 10 दिनों में क्लिनिक में दोबारा दिखाएं। यदि नियमित दवाओं व कसरत से दर्द में 50% से अधिक सुधार न हो, या लक्षण बढ़ें तो विशेषज्ञ ऑर्थोपेडिक चिकित्सक से परामर्श लें।",
+        emergency_warning="यदि अचानक पैर में भारी कमजोरी आ जाए (पंजा ऊपर न उठे / Foot Drop), शौच या पेशाब पर से नियंत्रण छूटने लगे, या जांघों के बीच सुन्नपन महसूस हो, तो इसे आपातकाल (Cauda Equina) समझें और तुरंत नजदीकी बड़े अस्पताल के न्यूरो/ऑर्थो विभाग में जाएं।",
         prescribed_date=datetime.utcnow()
     )
-
 def build_structured_report(exam: Examination) -> StructuredClinicalReport:
     """
     Compiles full structured clinical report following validated orthopedic documentation guidelines.

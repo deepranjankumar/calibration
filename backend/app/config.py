@@ -17,7 +17,7 @@ if root_env_path.exists():
                     k = k.strip()
                     v = v.strip().strip("'\"")
                     if k:
-                        os.environ.setdefault(k, v)
+                        os.environ[k] = v
     except Exception as e:
         print(f"[config] Notice: Could not read .env: {e}")
 
@@ -53,12 +53,9 @@ class Settings:
     CRITICAL_CONFIDENCE_WARNING: float = 0.40
 
     # Ollama Cloud LLM Configuration
-    OLLAMA_CLOUD_API: str = os.getenv(
-        "OLLAMA_CLOUD_API",
-        "158766c54d1e411aa1fa9e2628d07036.LpApsQ-rnBlYANE0qD1nKPdh"
-    )
-    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "https://ollama.com")
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "nemotron-3-nano:30b")
+    OLLAMA_CLOUD_API: str = os.getenv("OLLAMA_CLOUD_API", "")
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
 
     # AI Model Key
     AI_API_KEY: str = os.getenv("AI_API_KEY", "972008f37d754beb89ed92cd1d675a7a.dQAJ0eTAUvnOl44xX2diGvl1")

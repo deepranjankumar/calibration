@@ -213,6 +213,44 @@ html, body, #root {
 .border-amber-600\/50 { border-color: rgba(217, 119, 6, 0.5); }
 .border-blue-600\/30 { border-color: rgba(37, 99, 235, 0.3); }
 
+/* Display & Visibility */
+.hidden { display: none !important; }
+
+/* Dedicated High-Contrast Action Buttons */
+.btn-webcam {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid #38bdf8 !important;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35) !important;
+}
+.btn-webcam:hover {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
+  box-shadow: 0 4px 18px rgba(56, 189, 248, 0.5) !important;
+}
+
+.btn-upload {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.5) !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.6) !important;
+}
+.btn-upload:hover {
+  background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important;
+  color: #ffffff !important;
+  border-color: #38bdf8 !important;
+}
+
+.btn-fasttrack {
+  background: #090e17 !important;
+  color: #facc15 !important;
+  border: 1px dashed rgba(234, 179, 8, 0.6) !important;
+}
+.btn-fasttrack:hover {
+  background: rgba(30, 41, 59, 0.9) !important;
+  border-color: #facc15 !important;
+  color: #ffffff !important;
+}
+
 /* Flex & Grid layouts */
 .flex { display: flex; }
 .inline-flex { display: inline-flex; }
@@ -295,8 +333,13 @@ html, body, #root {
 .top-2 { top: 0.5rem; }
 .top-3 { top: 0.75rem; }
 .top-4 { top: 1rem; }
+.top-14 { top: 3.5rem; }
 .top-16 { top: 4rem; }
+.bottom-2 { bottom: 0.5rem; }
 .bottom-3 { bottom: 0.75rem; }
+.bottom-4 { bottom: 1rem; }
+.bottom-16 { bottom: 4rem; }
+.bottom-20 { bottom: 5rem; }
 .left-2 { left: 0.5rem; }
 .left-3 { left: 0.75rem; }
 .left-4 { left: 1rem; }

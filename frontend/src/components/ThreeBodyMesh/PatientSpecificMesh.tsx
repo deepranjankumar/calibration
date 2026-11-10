@@ -15,8 +15,54 @@ interface PatientSpecificMeshProps {
   findings?: ClinicalFinding[];
   isExamActive: boolean;
   selectedPoint?: Point3D | null;
+  selectedPoints?: Point3D[];
+  selectionMode?: 'POINT' | 'LINE';
   onSelectPoint?: (point: Point3D) => void;
 }
+
+const RadiationCylinder: React.FC<{
+  start: [number, number, number];
+  end: [number, number, number];
+  color?: string;
+}> = ({ start, end, color = '#f59e0b' }) => {
+  const { position, quaternion, length } = useMemo(() => {
+    const pA = new THREE.Vector3(...start);
+    const pB = new THREE.Vector3(...end);
+    const length = pA.distanceTo(pB);
+    const position = pA.clone().add(pB).multiplyScalar(0.5);
+    const v = pB.clone().sub(pA).normalize();
+    const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), v);
+    return { position, quaternion: quat, length };
+  }, [start, end]);
+
+  if (length < 0.001) return null;
+
+  return (
+    <group>
+      <mesh position={position} quaternion={quaternion}>
+        <cylinderGeometry args={[0.014, 0.014, length, 16]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.1}
+          roughness={0.2}
+          transparent
+          opacity={0.8}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh position={position} quaternion={quaternion}>
+        <cylinderGeometry args={[0.006, 0.006, length, 16]} />
+        <meshBasicMaterial
+          color="#ffffff"
+          transparent
+          opacity={0.95}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
+};
 
 export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
   meshUrl,
@@ -29,6 +75,8 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
   findings = [],
   isExamActive: _isExamActive,
   selectedPoint,
+  selectedPoints,
+  selectionMode: _selectionMode,
   onSelectPoint,
 }) => {
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
@@ -162,44 +210,98 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
         </group>
       )}
 
-      {/* --- ARBITRARY POINT SELECTION 3D BEACON PIN --- */}
-      {selectedPoint && (
-        <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
-          {/* Animated radiating beacon pulse ring */}
-          <group ref={pulseRef}>
-            <mesh position={[0, 0, 0.02]}>
-              <ringGeometry args={[0.045, 0.08, 32]} />
-              <meshBasicMaterial
-                color="#00e5ff"
-                side={THREE.DoubleSide}
-                transparent
-                opacity={0.9}
-                depthWrite={false}
-              />
-            </mesh>
-            <mesh position={[0, 0, 0.025]}>
-              <ringGeometry args={[0.015, 0.035, 32]} />
-              <meshBasicMaterial
-                color="#f59e0b"
-                side={THREE.DoubleSide}
-                transparent
-                opacity={0.95}
+      {/* --- MULTI-POINT & RADIATION LINE 3D PINS --- */}
+      {selectedPoints && selectedPoints.length > 0 ? (
+        <group>
+          {/* 3D Glowing Radiation Tube connecting consecutive nodes in LINE mode */}
+          {selectedPoints.length >= 2 &&
+            selectedPoints.slice(0, -1).map((pt, idx) => {
+              const nextPt = selectedPoints[idx + 1];
+              return (
+                <RadiationCylinder
+                  key={`rad-seg-${idx}`}
+                  start={[pt.x, pt.y, pt.z]}
+                  end={[nextPt.x, nextPt.y, nextPt.z]}
+                  color="#f59e0b"
+                />
+              );
+            })}
+
+          {/* Individual Marked Point Beacon Spheres & Number Badges */}
+          {selectedPoints.map((pt, idx) => (
+            <group key={`pt-${idx}-${pt.x.toFixed(3)}-${pt.y.toFixed(3)}`} position={[pt.x, pt.y, pt.z]}>
+              <group ref={idx === selectedPoints.length - 1 ? pulseRef : undefined}>
+                <mesh position={[0, 0, 0.02]}>
+                  <ringGeometry args={[0.035, 0.065, 32]} />
+                  <meshBasicMaterial
+                    color={idx === 0 ? '#00e5ff' : '#f59e0b'}
+                    side={THREE.DoubleSide}
+                    transparent
+                    opacity={0.9}
+                    depthWrite={false}
+                  />
+                </mesh>
+              </group>
+
+              <mesh>
+                <sphereGeometry args={[0.018, 16, 16]} />
+                <meshStandardMaterial
+                  color={idx === 0 ? '#38bdf8' : '#fbbf24'}
+                  emissive={idx === 0 ? '#38bdf8' : '#fbbf24'}
+                  emissiveIntensity={1.2}
+                  depthWrite={false}
+                />
+              </mesh>
+
+              {/* Number Pin Badge */}
+              <Html position={[0, 0.045, 0]} center distanceFactor={3.5} style={{ pointerEvents: 'none' }}>
+                <div className="bg-slate-900/95 text-cyan-300 border border-cyan-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-lg">
+                  {idx + 1}
+                </div>
+              </Html>
+            </group>
+          ))}
+        </group>
+      ) : (
+        /* Single point fallback */
+        selectedPoint && (
+          <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
+            {/* Animated radiating beacon pulse ring */}
+            <group ref={pulseRef}>
+              <mesh position={[0, 0, 0.02]}>
+                <ringGeometry args={[0.045, 0.08, 32]} />
+                <meshBasicMaterial
+                  color="#00e5ff"
+                  side={THREE.DoubleSide}
+                  transparent
+                  opacity={0.9}
+                  depthWrite={false}
+                />
+              </mesh>
+              <mesh position={[0, 0, 0.025]}>
+                <ringGeometry args={[0.015, 0.035, 32]} />
+                <meshBasicMaterial
+                  color="#f59e0b"
+                  side={THREE.DoubleSide}
+                  transparent
+                  opacity={0.95}
+                  depthWrite={false}
+                />
+              </mesh>
+            </group>
+
+            {/* Glowing central target sphere */}
+            <mesh>
+              <sphereGeometry args={[0.02, 16, 16]} />
+              <meshStandardMaterial
+                color="#38bdf8"
+                emissive="#38bdf8"
+                emissiveIntensity={1.2}
                 depthWrite={false}
               />
             </mesh>
           </group>
-
-          {/* Glowing central target sphere */}
-          <mesh>
-            <sphereGeometry args={[0.02, 16, 16]} />
-            <meshStandardMaterial
-              color="#38bdf8"
-              emissive="#38bdf8"
-              emissiveIntensity={1.2}
-              depthWrite={false}
-            />
-          </mesh>
-        </group>
+        )
       )}
 
       {/* --- INTERACTIVE PATIENT JOINT ZONES (CLEAN: NO PERMANENT DOTS OR CLUTTER) --- */}

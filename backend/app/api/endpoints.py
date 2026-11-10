@@ -16,6 +16,7 @@ from app.schemas.examination import (
     ClinicianSignOffRequest,
     PatientCalibrationResponse,
     AnalyzePointRequest,
+    AnalyzePainPathRequest,
     FinalPrescription
 )
 from app.services.engine import ExaminationWorkflowEngine
@@ -136,11 +137,25 @@ def analyze_body_point(payload: AnalyzePointRequest):
         side_hint=payload.side_hint
     )
 
+@router.post("/analyze-pain-path")
+def analyze_pain_path(payload: AnalyzePainPathRequest):
+    """
+    Analyzes multiple painful points or a continuous pain radiation line (e.g. Sciatica,
+    Full Spine axial strain, Cervical radiculopathy) marked on the 3D body.
+    Synthesizes conversational AI Doctor questions, real physical movement tests, and treatments.
+    """
+    return point_analyzer.analyze_pain_path(
+        points=[p.model_dump() for p in payload.points],
+        path_type=payload.path_type,
+        affected_side=payload.affected_side or "RIGHT",
+        patient_calibration=payload.patient_calibration
+    )
+
 @router.post("", response_model=ExaminationDetailResponse)
 def create_examination(payload: ExaminationCreate, db: Session = Depends(get_db)):
     """
     Step 1 of Workflow: Initiates an AI-controlled physical examination session
-    with the selected painful anatomical region or arbitrary pinpointed 3D coordinate.
+    with the selected painful anatomical region, multi-point array, or pain radiation path.
     """
     engine = ExaminationWorkflowEngine(db)
     exam = engine.initialize_examination(
@@ -153,7 +168,9 @@ def create_examination(payload: ExaminationCreate, db: Session = Depends(get_db)
         patient_orientation=payload.patient_orientation,
         patient_calibration=payload.patient_calibration,
         selected_point=payload.selected_point,
-        point_analysis=payload.point_analysis
+        selected_points=payload.selected_points,
+        point_analysis=payload.point_analysis,
+        pain_path_analysis=payload.pain_path_analysis
     )
     return _format_exam_response(exam)
 

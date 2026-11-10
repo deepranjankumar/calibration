@@ -33,17 +33,42 @@ class ExaminationWorkflowEngine:
         patient_orientation: str = "SAGITTAL_RIGHT",
         patient_calibration: Optional[Dict[str, Any]] = None,
         selected_point: Optional[Dict[str, float]] = None,
-        point_analysis: Optional[Dict[str, Any]] = None
+        selected_points: Optional[List[Dict[str, Any]]] = None,
+        point_analysis: Optional[Dict[str, Any]] = None,
+        pain_path_analysis: Optional[Dict[str, Any]] = None
     ) -> Examination:
         """
         Creates new examination record and seeds protocol steps in strict sequence.
-        If an arbitrary 3D point is specified, synthesizes a tailored dynamic protocol.
+        If a radiation line or multi-point path is specified, seeds an empathetic AI Doctor protocol.
+        If a single 3D point is specified, synthesizes a tailored dynamic protocol.
         """
-        # If operator pointed to an arbitrary body point, perform analysis or use provided analysis
-        if selected_point and not point_analysis:
+        if pain_path_analysis:
+            protocol_steps = point_analyzer.generate_protocol_steps_for_path(pain_path_analysis)
+            protocol_title = f"{pain_path_analysis.get('pattern_title_en', selected_region)} AI Doctor Protocol"
+            actual_region = pain_path_analysis.get("primary_region", selected_region)
+            actual_side = pain_path_analysis.get("affected_side", affected_side)
+            point_analysis = pain_path_analysis
+            if selected_points and len(selected_points) > 0 and not selected_point:
+                first_pt = selected_points[0]
+                selected_point = first_pt.get("point") if "point" in first_pt else first_pt
+        elif selected_points and len(selected_points) > 1:
+            pain_path_analysis = point_analyzer.analyze_pain_path(selected_points, affected_side=affected_side, patient_calibration=patient_calibration)
+            protocol_steps = point_analyzer.generate_protocol_steps_for_path(pain_path_analysis)
+            protocol_title = f"{pain_path_analysis.get('pattern_title_en', selected_region)} AI Doctor Protocol"
+            actual_region = pain_path_analysis.get("primary_region", selected_region)
+            actual_side = pain_path_analysis.get("affected_side", affected_side)
+            point_analysis = pain_path_analysis
+            first_pt = selected_points[0]
+            selected_point = first_pt.get("point") if "point" in first_pt else first_pt
+        elif selected_point and not point_analysis:
             point_analysis = point_analyzer.analyze_point(selected_point, side_hint=affected_side)
-
-        if point_analysis:
+            protocol_steps = point_analyzer.generate_protocol_steps_for_point(point_analysis)
+            protocol_title = f"{point_analysis.get('display_name', selected_region)} AI Clinical Protocol"
+            actual_region = point_analysis.get("region_id", selected_region)
+            actual_side = point_analysis.get("side", affected_side)
+            if actual_side == "BILATERAL":
+                actual_side = affected_side
+        elif point_analysis:
             protocol_steps = point_analyzer.generate_protocol_steps_for_point(point_analysis)
             protocol_title = f"{point_analysis.get('display_name', selected_region)} AI Clinical Protocol"
             actual_region = point_analysis.get("region_id", selected_region)

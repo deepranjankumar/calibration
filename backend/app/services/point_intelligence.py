@@ -23,7 +23,8 @@ class AnatomicalPointAnalyzer:
     def analyze_point(
         point: Dict[str, float],
         normal: Optional[Dict[str, float]] = None,
-        side_hint: Optional[str] = None
+        side_hint: Optional[str] = None,
+        enrich_llm: bool = True
     ) -> Dict[str, Any]:
         """
         Takes 3D coordinates (x, y, z) and optional normal vector,
@@ -95,7 +96,9 @@ class AnatomicalPointAnalyzer:
         else: # y <= -0.74
             raw_res = AnatomicalPointAnalyzer._classify_ankle_foot(point_dict, normal_dict, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str)
 
-        return AnatomicalPointAnalyzer._enrich_with_cloud_llm(raw_res)
+        if enrich_llm:
+            return AnatomicalPointAnalyzer._enrich_with_cloud_llm(raw_res)
+        return raw_res
 
     @staticmethod
     def _enrich_with_cloud_llm(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -104,8 +107,20 @@ class AnatomicalPointAnalyzer:
         to dynamically enrich the point analysis with differential diagnosis, pearls, and questions.
         Includes a 3.5s timeout with silent fallback so local rules always succeed instantly.
         """
+        base_url = getattr(settings, "OLLAMA_BASE_URL", "http://localhost:11434")
         api_key = getattr(settings, "OLLAMA_CLOUD_API", None)
-        if not api_key:
+        diffs = result.get("clinical_decisions", {}).get("differential_diagnosis", [])
+        pearl = result.get("clinical_decisions", {}).get("clinical_pearl", "")
+
+        is_local = "localhost" in base_url or "127.0.0.1" in base_url
+        if not api_key and not is_local:
+            result["cloud_ai_insights"] = {
+                "model_used": "Built-in Clinical Knowledge Engine",
+                "differential_diagnosis": diffs,
+                "clinical_pearl": pearl,
+                "targeted_treatment_insight": "Evidence-based regional protocol active.",
+                "status": "LOCAL_ENGINE"
+            }
             return result
 
         try:
@@ -131,29 +146,39 @@ class AnatomicalPointAnalyzer:
                 "stream": False
             }
             url = f"{settings.OLLAMA_BASE_URL}/api/chat"
+            headers = {"Content-Type": "application/json"}
+            if api_key and not is_local:
+                headers["Authorization"] = f"Bearer {api_key}"
             req = urllib.request.Request(
                 url,
                 data=json.dumps(req_data).encode("utf-8"),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}"
-                }
+                headers=headers
             )
-            with urllib.request.urlopen(req, timeout=7.5) as resp:
+            with urllib.request.urlopen(req, timeout=12.0) as resp:
                 resp_json = json.loads(resp.read().decode("utf-8"))
                 content = resp_json.get("message", {}).get("content", "").strip()
-                if content.startswith("```"):
-                    content = content.split("\n", 1)[1] if "\n" in content else content
-                if content.endswith("```"):
-                    content = content.rsplit("```", 1)[0]
+                if "```json" in content:
+                    content = content.split("```json", 1)[1].split("```", 1)[0]
+                elif "```" in content:
+                    content = content.split("```", 1)[1].split("```", 1)[0]
                 content = content.strip()
-                parsed = json.loads(content)
+                try:
+                    parsed = json.loads(content)
+                except Exception:
+                    parsed = {}
+
+                model_diffs = parsed.get("differential_diagnosis", [])
+                if not isinstance(model_diffs, list) or len(model_diffs) == 0:
+                    model_diffs = diffs
+
+                model_pearl = parsed.get("clinical_pearl", "") or pearl
+                model_insight = parsed.get("targeted_treatment_insight", "") or "Evidence-based regional protocol active."
 
                 result["cloud_ai_insights"] = {
-                    "model_used": settings.OLLAMA_MODEL,
-                    "differential_diagnosis": parsed.get("differential_diagnosis", []),
-                    "clinical_pearl": parsed.get("clinical_pearl", ""),
-                    "targeted_treatment_insight": parsed.get("targeted_treatment_insight", ""),
+                    "model_used": f"{settings.OLLAMA_MODEL} (Local Free Ollama)",
+                    "differential_diagnosis": model_diffs,
+                    "clinical_pearl": model_pearl,
+                    "targeted_treatment_insight": model_insight,
                     "status": "ONLINE"
                 }
 
@@ -170,9 +195,12 @@ class AnatomicalPointAnalyzer:
                             })
 
         except Exception as e:
-            logger.info(f"Ollama Cloud API offline or timeout ({e}), using built-in anatomical engine.")
+            logger.info(f"Ollama Cloud API offline, unbilled, or timeout ({e}), using built-in clinical engine.")
             result["cloud_ai_insights"] = {
                 "model_used": "Built-in Clinical Knowledge Engine",
+                "differential_diagnosis": diffs,
+                "clinical_pearl": pearl,
+                "targeted_treatment_insight": "Evidence-based regional protocol active.",
                 "status": "OFFLINE_FALLBACK"
             }
 
@@ -216,7 +244,7 @@ class AnatomicalPointAnalyzer:
                     "action_type": "QUESTION_CHOICE"
                 },
                 {
-                    "test_id": "TEST_PALPATION_THIGH",
+                    "test_id": "TEST_PALPATION_QUAD",
                     "title": "Focal Quadriceps Belly Palpation",
                     "instruction_en": "Palpate along the anterior thigh muscle fibers. Check for focal tenderness, muscle spasm, or a palpable defect.",
                     "instruction_hi": "जांघ की उस मांसपेशी पर सीधे उंगली से दबाकर देखें कि कितना दर्द या सूजन है।",
@@ -230,6 +258,14 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "Diagnostic musculoskeletal ultrasound if focal defect or large hematoma suspected. Gradual return to sports over 2-6 weeks depending on tear grade.",
                 "recovery_timeline": "Mild Strain: 1-2 weeks; Moderate Partial Tear: 3-6 weeks."
             }
+
+            differentials = [
+                "Quadriceps Muscle Strain / Contusion (जांघ के आगे की मांसपेशी में खिंचाव)",
+                "Rectus Femoris Tendinopathy",
+                "Femoral Nerve Compression / L3-L4 Radiculopathy",
+                "Meralgia Paresthetica (Anterolateral Burning)"
+            ]
+            pearl = "Inability to perform straight leg raise or localized defect in rectus femoris indicates high-grade quadriceps tear; burning over anterolateral thigh indicates meralgia paresthetica."
 
         elif aspect == "POSTERIOR":
             region_id = f"{side}_POSTERIOR_THIGH"
@@ -279,6 +315,15 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "MRI indicated if suspected proximal ischial tendon avulsion (>2cm retraction requires surgical repair).",
                 "recovery_timeline": "Grade 1: 2-3 weeks; Grade 2: 4-8 weeks; Complete Avulsion: surgical consult."
             }
+
+            differentials = [
+                "Sciatic Nerve Radicular Radiation Track (L4-S1 सायटिका का जांघ के पीछे उतरना)",
+                "Hamstring Tendon / Muscle Strain (जांघ के पीछे खिंचाव)",
+                "Deep Sciatic Neural Adhesion / Entrapment",
+                "Ischial Tuberosity Enthesopathy"
+            ]
+            pearl = "Radiating posterior thigh pain that shoots past the knee without local muscle tenderness on palpation is referred Sciatica from lumbar or piriformis origin."
+
         else: # Lateral or Medial Thigh (ITB or Adductors)
             is_lateral = aspect == "LATERAL" or (x < 0 and nx < -0.3) or (x > 0 and nx > 0.3)
             sub_name = "Iliotibial Band (ITB) / Tensor Fasciae Latae" if is_lateral else "Adductor Longus / Groin Muscle Bed"
@@ -298,31 +343,37 @@ class AnatomicalPointAnalyzer:
             ]
             tests = [
                 {
-                    "test_id": "TEST_HIP_ADDUCTION_SQUEEZE",
-                    "title": "Adductor Squeeze / ITB Ober's Functional Screen",
-                    "instruction_en": "Perform isometric hip adduction against resistance or assess ITB tension in side-lying position.",
-                    "instruction_hi": "दोनों पैरों को आपस में दबाकर या करवट लेटकर पैर ऊपर उठाकर दर्द की जांच करें।",
-                    "action_type": "VIDEO_MOVEMENT",
-                    "target_joint": "HIP"
+                    "test_id": "TEST_OBER_ITB",
+                    "title": "Ober's Test (IT Band Tightness) or Squeeze Test (Adductors)",
+                    "instruction_en": "Side-lying Ober test for lateral thigh or supine isometric adductor squeeze at 0° and 45° knee flexion.",
+                    "instruction_hi": "करवट लेटकर पैर को पीछे खींचकर देखें कि जांघ के किनारे कितना खिंचाव है।",
+                    "action_type": "QUESTION_CHOICE"
                 },
                 {
-                    "test_id": "TEST_PALPATION_FASCIAL",
-                    "title": "Focal Palpation of Fascial Insertion",
-                    "instruction_en": "Palpate the tender fascial margin or adductor enthesis for trigger points.",
-                    "instruction_hi": "जांघ की उस नस पर उंगली से दबाव देकर 0 से 10 तक दर्द बताएं।",
+                    "test_id": "TEST_PALPATION_THIGH_BORDER",
+                    "title": "Focal ITB / Adductor Origin Palpation",
+                    "instruction_en": "Palpate the IT band along lateral femoral condyle and Gerdy's tubercle, or adductor longus origin at pubic tubercle.",
+                    "instruction_hi": "जांघ के बाहरी किनारे या भीतरी जोड़ पर दबाकर दर्द की जांच करें।",
                     "action_type": "PALPATION_SCORE"
                 }
             ]
             rx = {
-                "phase1_acute": "Avoid provocative cross-body movements. Foam rolling for adjacent musculature; ice after activity.",
-                "phase2_rehab": "Side-planks, Copenhagen adductor planks, and pelvic girdle stabilization exercises.",
-                "phase3_medical": "Targeted physical therapy with dry needling or shockwave therapy for chronic insertional tendinopathy.",
+                "phase1_acute": "Foam rolling / soft tissue release to ITB/TFL or adductors. Avoid aggressive cutting/sprinting.",
+                "phase2_rehab": "Side-planks, clamshells, Copenhagen adductor planks (isometric hold progression).",
+                "phase3_medical": "Pelvic/Hip X-ray if persistent groin pain to rule out femoral acetabular impingement (FAI) or sports hernia.",
                 "recovery_timeline": "2-4 weeks with consistent load management."
             }
 
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+            differentials = [
+                "Iliotibial Band (ITB) Friction Syndrome (बाहरी जांघ में खिंचाव)",
+                "Adductor Muscle / Groin Strain (भीतरी जांघ में खिंचाव)",
+                "Tensor Fasciae Latae Strain",
+                "Greater Trochanteric Referral"
+            ]
+            pearl = "Lateral thigh aching exacerbated by prolonged walking or running points to ITB tightness, while pain on squeezing knees together indicates adductor strain."
 
-    @staticmethod
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
+
     def _classify_leg_calf_shin(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
         if aspect == "POSTERIOR":
             region_id = f"{side}_CALF_POSTERIOR"
@@ -353,15 +404,15 @@ class AnatomicalPointAnalyzer:
                     "test_id": "TEST_SINGLE_HEEL_RAISE",
                     "title": "Active Single-Leg Heel Raise & Calf Endurance",
                     "instruction_en": "Instruct patient to perform single-leg calf raise standing. Monitor for pain, weakness, or inability to achieve full height.",
-                    "instruction_hi": "एक पैर पर खड़े होकर एड़ी को ऊपर उठाएं (पंजे पर खड़े हों)।",
+                    "instruction_hi": "सिर्फ एक पैर के पंजे पर ऊपर उठें और देखें कि पिंडली में दर्द या कमजोरी तो नहीं है।",
                     "action_type": "VIDEO_MOVEMENT",
                     "target_joint": "ANKLE"
                 },
                 {
                     "test_id": "TEST_PALPATION_CALF",
-                    "title": "Focal Calf Muscle & Achilles Palpation",
-                    "instruction_en": "Palpate the medial gastrocnemius belly ('tennis leg') and Achilles tendon 2-6cm proximal to insertion for tenderness/nodularity.",
-                    "instruction_hi": "पिंडली की नस और एड़ी के ऊपर की डोरी पर उंगली से दबाकर दर्द का स्तर बताएं।",
+                    "title": "Targeted Gastrocnemius Musculotendinous Junction Palpation",
+                    "instruction_en": "Palpate the medial gastrocnemius belly and proximal Achilles tendon for gap, swelling, or focal tenderness.",
+                    "instruction_hi": "पिंडली की नस पर हाथ से दबाकर दर्द और सूजन की जांच करें।",
                     "action_type": "PALPATION_SCORE"
                 }
             ]
@@ -372,6 +423,15 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "Venous Doppler ultrasound immediately if calf swelling/DVT suspected. Orthopedic consult if positive Thompson test.",
                 "recovery_timeline": "Medial Gastrocnemius Strain: 2-4 weeks; Achilles Tendinopathy: 6-12 weeks."
             }
+
+            differentials = [
+                "Sciatica L5-S1 Radicular Radiation into Calf & Foot (पिंडली व पंजे तक नस का दर्द)",
+                "Gastrocnemius Nocturnal Muscle Cramps & Venous Stasis (पिंडलियों में रात की ऐंठन व भारीपन)",
+                "Medial Gastrocnemius Muscle Strain (Tennis Leg)",
+                "Diabetic / Nutritional (B12 Deficiency) Peripheral Neuropathy (पैरों व तलवों में जलन, सुन्नपन व झुनझुनी)"
+            ]
+            pearl = "Symmetrical bilateral burning/tingling in the soles worse at night indicates metabolic/nutritional neuropathy (Vitamin B12 deficiency/diabetes), whereas unilateral shooting electric pain from back/buttock is root Sciatica."
+
         else: # Anterior / Lateral (Tibia Shin / Tibialis Anterior)
             region_id = f"{side}_SHIN_ANTERIOR"
             display_name = f"{side_str} Anterior Leg & Shin (Tibialis Anterior / Tibial Shaft)"
@@ -413,9 +473,16 @@ class AnatomicalPointAnalyzer:
                 "recovery_timeline": "Medial Tibial Stress Syndrome: 3-8 weeks with activity modification."
             }
 
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+            differentials = [
+                "Medial Tibial Stress Syndrome (Shin Splints from hard field walking - पिंडली के आगे की हड्डी में दर्द)",
+                "Tibialis Anterior Muscle Strain / Tendinopathy",
+                "Tibial Stress Fracture (हड्डी में हेयरलाइन क्रैक)",
+                "Exertional Anterior Compartment Syndrome"
+            ]
+            pearl = "Diffuse tenderness along the lower third of the posteromedial tibial border represents shin splints (MTSS), while sharp focal pinpoint bone tenderness <2cm warrants stress fracture rule-out."
 
-    @staticmethod
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
+
     def _classify_thorax_chest_back(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
         if aspect == "ANTERIOR":
             region_id = f"{side}_CHEST_THORACIC"
@@ -458,6 +525,15 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "Topical or oral NSAIDs for costochondritis. Chest X-Ray if history of blunt trauma to exclude rib fracture/pneumothorax.",
                 "recovery_timeline": "Muscular strain / Costochondritis: 1-4 weeks."
             }
+
+            differentials = [
+                "Costochondritis / Tietze Syndrome (सीने की पसली की सूजन)",
+                "Pectoralis Major Muscle Strain (सीने की मांसपेशी का खिंचाव)",
+                "Intercostal Neuralgia / Musculoskeletal Chest Wall Pain",
+                "Rule-out Angina / Cardiovascular Origin"
+            ]
+            pearl = "Chest wall pain that is sharply tender to local palpation on costochondral cartilage and reproduces on trunk twisting is costochondritis, not cardiac ischemia."
+
         else: # Posterior (Upper & Mid Back / Scapula / Rhomboid)
             region_id = f"{side}_THORACIC_POSTERIOR"
             display_name = f"{side_str} Thoracic Spine & Periscapular Region"
@@ -499,9 +575,16 @@ class AnatomicalPointAnalyzer:
                 "recovery_timeline": "Postural Myofascial Pain: 1-3 weeks with ergonomic modification."
             }
 
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+            differentials = [
+                "Axial Postural Kinetic Chain Strain (सिर पर भारी बोझ उठाने से गर्दन से पीठ तक खिंचाव)",
+                "Thoracic Kyphotic Postural Fatigue & Rhomboid Spasm (कंधों के बीच दर्द)",
+                "Costovertebral Joint Dysfunction (पसली का खिंचाव)",
+                "Thoracic Spondylosis"
+            ]
+            pearl = "Mid-back paraspinal aching is almost always compensatory to occupational head-loading or stooping in fields. Cat-Camel mobilizations and thoracic extension unloading provide immediate pain relief."
 
-    @staticmethod
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
+
     def _classify_abdomen_lumbar(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
         if aspect == "ANTERIOR":
             region_id = f"{side}_ABDOMINAL_WALL"
@@ -542,6 +625,15 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "Abdominal wall trigger point injection or ultrasound if suspected anterior cutaneous nerve entrapment (ACNES).",
                 "recovery_timeline": "Abdominal muscle strain: 2-4 weeks."
             }
+
+            differentials = [
+                "Rectus Abdominis Muscle Strain (पेट की मांसपेशी में खिंचाव)",
+                "Anterior Cutaneous Nerve Entrapment Syndrome (ACNES - पेट की नस दबना)",
+                "Incipient Inguinal / Umbilical Hernia (हर्निया का शुरुआती उभार)",
+                "Referred Visceral Colic (आंतों या पथरी का दर्द)"
+            ]
+            pearl = "Positive Carnett's test (increased pain on head raise) confirms abdominal wall myofascial origin rather than intra-abdominal visceral emergency."
+
         else: # Posterior (Lumbar Spine & Paraspinal Musculature)
             region_id = f"{side}_LUMBAR_PARASPINAL"
             display_name = f"{side_str} Lumbar Paraspinal & Low Back Musculature"
@@ -591,9 +683,16 @@ class AnatomicalPointAnalyzer:
                 "recovery_timeline": "Acute Mechanical Low Back Strain: 2-6 weeks."
             }
 
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+            differentials = [
+                "L4-L5 / L5-S1 Lumbar Disc Herniation with Sciatica (सायटिका - कमर से पैर तक नस दबने का तेज दर्द)",
+                "Piriformis Syndrome / Deep Gluteal Sciatic Entrapment (कूल्हे की नस में दबाव)",
+                "Lumbar Spinal Canal Stenosis (न्यूरोजेनिक क्लॉडिकेशन - चलने पर पैरों में भारीपन)",
+                "Lumbar Spondylosis & Acute Paraspinal Muscular Spasm (कमर की रीढ़ का घिसाव व ऐंठन)"
+            ]
+            pearl = "Straight Leg Raise (SLR / Lasegue's) test between 30°-70° differentiates true disc root sciatica from tight hamstrings. McKenzie prone press-ups push the disc anteriorly away from the nerve root to centralize pain out of the leg."
 
-    @staticmethod
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
+
     def _classify_pelvis_hip_gluteal(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
         if aspect == "POSTERIOR":
             region_id = f"{side}_GLUTEAL_PIRIFORMIS"
@@ -630,23 +729,30 @@ class AnatomicalPointAnalyzer:
                 {
                     "test_id": "TEST_PALPATION_GLUTEAL",
                     "title": "Targeted Piriformis & Sciatic Notch Palpation",
-                    "instruction_en": "Palpate midway between PSIS and greater trochanter along the piriformis muscle belly and greater sciatic notch.",
-                    "instruction_hi": "कूल्हे के पिछले हिस्से की नस पर सीधा दबाव देकर दर्द का स्तर मापें।",
+                    "instruction_en": "Palpate midway between PSIS and greater trochanter along piriformis belly and greater sciatic notch.",
+                    "instruction_hi": "कूल्हे की गहरी नस पर दबाकर देखें कि कितना दर्द होता है।",
                     "action_type": "PALPATION_SCORE"
                 }
             ]
 
             rx = {
-                "phase1_acute": "Avoid sitting with wallet in back pocket. Use ergonomic cushion. Cold pack to buttock for 20 mins.",
-                "phase2_rehab": "Piriformis stretch (figure-4 stretch), gluteus medius clamshells, and pelvic stability bridges.",
-                "phase3_medical": "Deep tissue release or ultrasound-guided piriformis injection if refractory deep gluteal syndrome.",
-                "recovery_timeline": "Piriformis / Gluteal Strain: 2-6 weeks."
+                "phase1_acute": "Avoid sitting on hard surfaces or thick wallets. Soft cushion. Ice/heat to gluteal region.",
+                "phase2_rehab": "Piriformis figure-4 stretches, nerve flossing, gluteus medius strengthening (side-lying clams, bridges).",
+                "phase3_medical": "Ultrasound-guided piriformis injection or deep dry needling if recalcitrant after 4-6 weeks.",
+                "recovery_timeline": "Piriformis Syndrome: 3-8 weeks."
             }
-        else: # Anterior / Lateral (Greater Trochanter / Hip Flexor / Inguinal)
-            is_lateral = abs(x) > 0.10
-            sub = "Greater Trochanteric Pain Syndrome (Bursitis / Gluteus Medius Tendon)" if is_lateral else "Anterior Hip Capsule & Psoas / Inguinal Region"
-            region_id = f"{side}_GREATER_TROCHANTER" if is_lateral else f"{side}_ANTERIOR_HIP"
-            display_name = f"{side_str} {sub}"
+
+            differentials = [
+                "Piriformis Syndrome / Deep Gluteal Space Sciatica (पिरिफोर्मिस सिंड्रोम - कूल्हे की नस में दबाव)",
+                "L4-S1 Lumbar Radiculopathy referring to Buttock (कमर से कूल्हे में उतरने वाला सायटिका)",
+                "Sacroiliac Joint Dysfunction (SI Joint Strain - कमर व कूल्हे का जोड़)",
+                "Gluteus Medius Tendinopathy & Ischial Bursitis"
+            ]
+            pearl = "Deep buttock aching aggravated by sitting on a hard chair, wallet in back pocket, or driving, with positive FAIR test but NO midline lumbar spine tenderness, strongly confirms Piriformis Syndrome over spinal disc herniation."
+
+        else: # Anterior or Lateral Hip (Greater Trochanter / Hip Flexor)
+            region_id = f"{side}_HIP_TROCHANTER"
+            display_name = f"{side_str} Lateral Hip & Greater Trochanteric Region"
             muscle = "Gluteus Medius & Minimus tendons, Iliopsoas, Pectineus"
             nerve = "Femoral Nerve, Superior Gluteal Nerve"
             tissue = "Trochanteric Bursa / Tendon Enthesis / Hip Capsule"
@@ -684,9 +790,16 @@ class AnatomicalPointAnalyzer:
                 "recovery_timeline": "Greater Trochanteric Syndrome: 4-8 weeks."
             }
 
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+            differentials = [
+                "Greater Trochanteric Pain Syndrome (GTPS / Gluteal Tendinopathy)",
+                "Hip Joint Osteoarthritis (कूल्हे के जोड़ का घिसाव)",
+                "Iliopsoas Bursitis & Tendinopathy",
+                "Meralgia Paresthetica"
+            ]
+            pearl = "Pain localized precisely over the bony prominence of the greater trochanter that prevents sleeping on that side indicates GTPS rather than internal hip joint pathology."
 
-    @staticmethod
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
+
     def _classify_upper_limb(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
         if y > 0.48: # Shoulder & Deltoid / Biceps
             region_id = f"{side}_SHOULDER_DELTOID"
@@ -942,9 +1055,17 @@ class AnatomicalPointAnalyzer:
             "phase3_medical": "Cervical spine MRI if radicular weakness; physical therapy for postural restoration.",
             "recovery_timeline": "Acute Cervical Strain / Torticollis: 1-3 weeks."
         }
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
 
-    @staticmethod
+        differentials = [
+            "Cervical Spondylosis with Radiculopathy (गर्दन की नस दबना - हाथ में झुनझुनी व दर्द)",
+            "Axial Cervico-Thoraco-Lumbar Kinetic Chain Strain (सिर पर भारी बोझ उठाने व झुककर काम करने से संपूर्ण रीढ़ में खिंचाव)",
+            "Upper Trapezius & Levator Scapulae Myofascial Spasm (गर्दन व कंधे की जकड़न)",
+            "Cervical Facet Syndrome & Text-Neck Postural Strain"
+        ]
+        pearl = "Carrying heavy loads on the head compresses the cervical spine and radiates compensatory myofascial spasm through thoracic erectors down to the lumbar and sacroiliac joints. McKenzie Chin Tucks and thoracic unloading break the entire kinetic chain spasm."
+
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
+
     def _classify_head_cranium(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
         region_id = "CRANIOFACIAL"
         display_name = f"{side_str} Head & Craniofacial Region"
@@ -987,7 +1108,7 @@ class AnatomicalPointAnalyzer:
     # --- PROFILE COMPILER ---
 
     @staticmethod
-    def _build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx) -> Dict[str, Any]:
+    def _build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials=None, pearl=None) -> Dict[str, Any]:
         return {
             "point": point,
             "normal": normal,
@@ -1011,7 +1132,9 @@ class AnatomicalPointAnalyzer:
                 },
                 "diagnostic_questions": dq,
                 "recommended_tests": tests,
-                "treatment_plan": rx
+                "treatment_plan": rx,
+                "differential_diagnosis": differentials or [],
+                "clinical_pearl": pearl or ""
             }
         }
 
@@ -1110,6 +1233,396 @@ class AnatomicalPointAnalyzer:
                                 {"value": "NEGATIVE_NORMAL", "label": "Negative: No reproduction of focal pain or functional deficit"},
                                 {"value": "POSITIVE_MILD_PAIN", "label": "Positive: Mild to moderate pain reproduction without instability"},
                                 {"value": "POSITIVE_SEVERE_PAIN", "label": "Positive: Severe sharp pain reproduction or gross functional giving way"}
+                            ]
+                        }
+                    )
+                )
+
+        return steps
+
+    @classmethod
+    def analyze_pain_path(
+        cls,
+        points: List[Dict[str, Any]],
+        path_type: str = "POINT",
+        affected_side: str = "RIGHT",
+        patient_calibration: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyzes a set of 3D points forming multiple painful areas or a continuous radiation line.
+        Detects syndromes (e.g. Sciatica radiation, Full spine axial strain, Cervical radiculopathy, Localized joint).
+        Produces compassionate, conversational doctor questions, physical movement tests, and treatments.
+        """
+        if not points:
+            return {}
+
+        points_detail = []
+        regions_touched = set()
+        y_coords = []
+        x_coords = []
+
+        for p_item in points:
+            pt = p_item.get("point") if "point" in p_item else p_item
+            norm = p_item.get("normal")
+            p_res = cls.analyze_point(pt, norm, affected_side, enrich_llm=False)
+            points_detail.append(p_res)
+            regions_touched.add(p_res.get("region_id", ""))
+            y_coords.append(pt.get("y", 0.0))
+            x_coords.append(pt.get("x", 0.0))
+
+        min_y = min(y_coords)
+        max_y = max(y_coords)
+        y_span = max_y - min_y
+        is_line = (path_type == "LINE") or (len(points) >= 2 and y_span > 0.3)
+
+        has_lumbar = any("LUMBAR" in r or "SPINE" in r for r in regions_touched) or any(0.15 <= y <= 0.4 for y in y_coords)
+        has_cervical = any("CERVICAL" in r or "NECK" in r for r in regions_touched) or any(y >= 0.55 for y in y_coords)
+        has_gluteal = any("GLUTEAL" in r or "PELVIS" in r or "HIP" in r for r in regions_touched) or any(-0.1 <= y <= 0.15 for y in y_coords)
+        has_thigh = any("THIGH" in r for r in regions_touched) or any(-0.45 <= y <= -0.15 for y in y_coords)
+        has_leg = any("LEG" in r or "CALF" in r or "ANKLE" in r or "FOOT" in r for r in regions_touched) or any(y <= -0.45 for y in y_coords)
+        has_arm = any("ARM" in r or "SHOULDER" in r or "ELBOW" in r for r in regions_touched) or any(abs(x) > 0.25 and y > 0.1 for x, y in zip(x_coords, y_coords))
+
+        # 1. Sciatica Pattern
+        if (has_lumbar or has_gluteal) and (has_thigh or has_leg):
+            pattern_id = "SCIATICA_L4_S1_RADICULAR_PATH"
+            pattern_title_en = "Sciatic Nerve Radiation Path (L4-S1 Lumbar Disc Radiculopathy)"
+            pattern_title_hi = "सायटिका - कमर से पैर तक नस दबने का रास्ता (L4-S1 डिस्क दबाव)"
+            primary_region = "LUMBAR_SPINE"
+            path_summary_en = f"Marked pain radiation line extends from lumbar spine / buttock into lower limb ({len(points)} points mapped). Characteristic of sciatic nerve root entrapment."
+            path_summary_hi = f"दर्द की रेखा कमर/कूल्हे से लेकर जांघ व पिंडली तक फैली है ({len(points)} बिंदु चिह्नित)। यह सायटिका नस पर दबाव का स्पष्ट संकेत है।"
+
+            doc_greeting_en = "Hello, I am Dr. AI, your orthopedic specialist. I have closely reviewed the pain line you marked running from your lower back through your buttock down your leg. Let us examine what is causing this nerve to be pinched."
+            doc_greeting_hi = "नमस्ते, मैं आपका AI ऑर्थोपेडिक डॉक्टर हूँ। आपकी 3D बॉडी पर चुनी गई दर्द की लाइन (कमर से कूल्हे और पैर तक) को मैंने देखा है। आइए जांच करते हैं कि कौन सी नस दब रही है।"
+
+            doc_questions = [
+                {
+                    "id": "Q_DOCTOR_SCIATICA_NATURE",
+                    "prompt_en": "Does the pain feel like an electric current, burning sensation, or sharp tingling that shoots down your thigh into your calf or foot?",
+                    "prompt_hi": "क्या यह दर्द करंट के झटके, जलन या तेज चुभन की तरह कमर से जांघ और पिंडली तक नीचे जाता है?",
+                    "choices": [
+                        {"value": "ELECTRIC_SHOOTING", "label": "Yes: Sharp electric shock / burning shooting down the leg (हाँ, करंट जैसा तेज खिंचाव नीचे जाता है)"},
+                        {"value": "DULL_LOCAL_ACHE", "label": "No: Mostly a dull deep ache in hip without shooting (नहीं, केवल कूल्हे व जांघ में भारीपन रहता है)"},
+                        {"value": "INTERMITTENT_NUMBNESS", "label": "Numbness and pins-and-needles in toes/sole (पैर के पंजों में सुन्नपन और चींटियां चलना)"}
+                    ]
+                },
+                {
+                    "id": "Q_DOCTOR_SCIATICA_TRIGGERS",
+                    "prompt_en": "Does bending forward to touch your toes, coughing, sneezing, or sitting on a low chair trigger sharp pain in your leg?",
+                    "prompt_hi": "क्या आगे झुकने, खांसने, छींकने या नीचे बैठने पर पैर में तेज दर्द बढ़ जाता है?",
+                    "choices": [
+                        {"value": "AGGRAVATED_BY_FLEXION_COUGH", "label": "Yes: Bending forward & coughing intensely worsens leg pain (हाँ, आगे झुकने व खांसने पर बहुत बढ़ता है)"},
+                        {"value": "AGGRAVATED_BY_WALKING_ONLY", "label": "Worse while standing/walking, relieved by sitting (चलने पर पैर भर जाता है, बैठने पर आराम मिलता है)"},
+                        {"value": "CONSTANT_NO_CHANGE", "label": "Constant pain regardless of posture (लगातार एक जैसा दर्द रहता है)"}
+                    ]
+                }
+            ]
+
+            movements = [
+                {
+                    "test_id": "TEST_LUMBAR_ACTIVE_FLEXION",
+                    "title": "Camera-Guided Active Lumbar Flexion (Toe Touch)",
+                    "instruction_en": "Stand 2-3 meters in front of the camera. Keeping your knees straight, slowly bend forward toward your toes. The AI tracks your spinal flexion and notes if leg pain increases.",
+                    "instruction_hi": "कैमरे के सामने सीधे खड़े हों। घुटनों को सीधा रखते हुए धीरे-धीरे आगे झुकें और हाथ पंजों की तरफ ले जाएं।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "SPINE_LUMBAR"
+                },
+                {
+                    "test_id": "TEST_PASSIVE_SLR_LASEGUE",
+                    "title": "Straight Leg Raise Test (Lasegue's Maneuver)",
+                    "instruction_en": "Lie flat on your back. Slowly raise your symptomatic leg straight up toward the ceiling without bending the knee. The camera measures if pain shoots down between 30° and 70°.",
+                    "instruction_hi": "पीठ के बल सीधे लेट जाएं। घुटने को बिना मोड़े दर्द वाले पैर को ऊपर सीधा उठाएं।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "HIP"
+                }
+            ]
+
+            provocative = [
+                {
+                    "test_id": "TEST_FAIR_PIRIFORMIS",
+                    "title": "FAIR Piriformis Adduction Maneuver",
+                    "instruction_en": "Lie on your back, bend your knee to 90°, and gently pull it across your body toward your opposite shoulder. Does this pinch deep in your buttock?",
+                    "instruction_hi": "लेटकर घुटने को 90 डिग्री मोड़ें और विपरीत कंधे की तरफ खींचें। क्या कूल्हे के अंदर तेज दर्द होता है?",
+                    "action_type": "QUESTION_CHOICE"
+                }
+            ]
+
+            differentials = [
+                "L4-L5 / L5-S1 Lumbar Disc Herniation with Sciatica (सायटिका - कमर से पैर तक नस दबने का तेज दर्द)",
+                "Piriformis Syndrome / Deep Gluteal Sciatic Entrapment (कूल्हे की नस में खिंचाव व दबाव)",
+                "Lumbar Spinal Canal Stenosis (न्यूरोजेनिक क्लॉडिकेशन - चलने पर पैरों में भारीपन)",
+                "Sacroiliac (SI) Joint Dysfunction (कमर व कूल्हे के जोड़ का दर्द)"
+            ]
+            pearl = "Straight Leg Raise (Lasegue's) positive between 30°-70° confirms nerve root traction from a disc herniation. McKenzie prone press-ups push the disc anteriorly away from the nerve root to centralize pain out of the leg."
+
+        # 2. Full Spine Axial Strain Pattern
+        elif has_cervical and (has_lumbar or has_gluteal):
+            pattern_id = "FULL_SPINE_AXIAL_STRAIN_PATH"
+            pattern_title_en = "Full Spine Axial Strain & Head-Loading Syndrome"
+            pattern_title_hi = "गर्दन से कमर और कूल्हे तक रीढ़ का खिंचाव (बोझा ढोने व गलत मुद्रा का दर्द)"
+            primary_region = "LUMBAR_SPINE"
+            path_summary_en = f"Continuous pain line mapped along the entire vertebral column ({len(points)} points). Classic presentation of axial spinal overload and paraspinal myofascial exhaustion."
+            path_summary_hi = f"गर्दन से लेकर पूरी रीढ़ और कूल्हे तक लगातार दर्द की लाइन चिह्नित ({len(points)} बिंदु)। यह अत्यधिक शारीरिक भार व रीढ़ की मांसपेशियों के खिंचाव का लक्षण है।"
+
+            doc_greeting_en = "Hello, I am Dr. AI, your orthopedic specialist. I have analyzed the extensive pain path across your entire spine, from your neck to your lower back and hips. We will evaluate your vertebral posture, muscle spasm, and spinal strain."
+            doc_greeting_hi = "नमस्ते, मैं आपका AI ऑर्थोपेडिक डॉक्टर हूँ। मैंने देखा कि आपके दर्द की रेखा गर्दन से लेकर पीठ, कमर और कूल्हे तक है। आइए आपकी रीढ़ की हड्डी और मांसपेशियों के तनाव की जांच करते हैं।"
+
+            doc_questions = [
+                {
+                    "id": "Q_DOCTOR_AXIAL_OCCUPATION",
+                    "prompt_en": "Do you regularly carry heavy sacks or loads on your head/shoulders, or spend long hours working bent forward in farming or construction?",
+                    "prompt_hi": "क्या आप सिर या कंधे पर भारी वजन/बोरी उठाते हैं, या खेतों-मजदूरी में घंटों झुककर काम करते हैं?",
+                    "choices": [
+                        {"value": "HEAVY_HEAD_LOADING", "label": "Yes: Regularly carry heavy loads on head / shoulders (हाँ, सिर या कंधे पर भारी वजन ढोते हैं)"},
+                        {"value": "PROLONGED_BENDING", "label": "Yes: Prolonged forward stooping and heavy farm labor (हाँ, घंटों झुककर खेत या मजदूरी का काम करते हैं)"},
+                        {"value": "SEDENTARY_POSTURE", "label": "No: Long hours sitting in desk/vehicle posture (नहीं, घंटों एक ही जगह बैठकर काम करते हैं)"}
+                    ]
+                },
+                {
+                    "id": "Q_DOCTOR_AXIAL_STIFFNESS",
+                    "prompt_en": "Does your entire back feel stiff like a tight board when getting out of bed in the morning, requiring 20-30 minutes of warm-up?",
+                    "prompt_hi": "क्या सुबह सोकर उठने पर पूरी रीढ़ रस्सी या तख्ते जैसी अकड़ी हुई महसूस होती है, जिसे सामान्य होने में 20-30 मिनट लगते हैं?",
+                    "choices": [
+                        {"value": "MORNING_STIFFNESS_MARKED", "label": "Yes: Severe morning stiffness, feels tight until moving (हाँ, सुबह पूरी पीठ अकड़ी रहती है)"},
+                        {"value": "EVENING_FATIGUE_WORSE", "label": "Worse in the evening after hard physical work (शाम को काम करने के बाद दर्द ज्यादा बढ़ता है)"},
+                        {"value": "MILD_DISCOMFORT", "label": "Mild dull tightness throughout the day (दिनभर हल्का भारीपन बना रहता है)"}
+                    ]
+                }
+            ]
+
+            movements = [
+                {
+                    "test_id": "TEST_SPINE_CERVICOTHORACIC_ROTATION",
+                    "title": "Active Cervical & Thoracic Spinal Rotation",
+                    "instruction_en": "Stand facing the camera with feet shoulder-width apart. Slowly rotate your head and upper body fully to the left, then fully to the right. MediaPipe measures rotational symmetry.",
+                    "instruction_hi": "कैमरे के सामने सीधे खड़े हों। धीरे-धीरे गर्दन और ऊपरी धड़ को पहले पूरी तरह बाईं ओर, फिर दाईं ओर घुमाएं।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "SPINE_THORACIC"
+                },
+                {
+                    "test_id": "TEST_LUMBAR_ACTIVE_EXTENSION",
+                    "title": "Standing Lumbar Spinal Extension (Backward Arch)",
+                    "instruction_en": "Place your hands on your hips and gently arch your spine backward while facing the camera. Note if this relieves muscular tightness.",
+                    "instruction_hi": "हाथों को कमर पर रखें और धीरे-धीरे पीछे की तरफ झुकें। रीढ़ को पीछे मोड़कर खिंचाव महसूस करें।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "SPINE_LUMBAR"
+                }
+            ]
+
+            provocative = [
+                {
+                    "test_id": "TEST_PARASPINAL_PALPATION_AXIAL",
+                    "title": "Full Spine Paraspinal Trigger Point Palpation",
+                    "instruction_en": "Apply firm thumb pressure along the muscular gutters on both sides of the spine from upper back to lower back. Rate maximum focal tenderness.",
+                    "instruction_hi": "रीढ़ की हड्डी के दोनों तरफ मांसपेशियों पर उंगली से दबाएं। सबसे तेज दर्द का स्कोर 0 से 10 के बीच बताएं।",
+                    "action_type": "PALPATION_SCORE"
+                }
+            ]
+
+            differentials = [
+                "Full Spine Axial Strain & Head-Loading Syndrome (रीढ़ की हड्डी का संपूर्ण खिंचाव व मांसपेशियों की थकान)",
+                "Cervicothoracolumbar Postural Dysfunctional Syndrome (गलत मुद्रा व भारी काम का दर्द)",
+                "Diffuse Paraspinal Myofascial Pain Syndrome (पीठ की मांसपेशियों में गांठे व अकड़न)",
+                "Lumbar Spondylosis with Associated Cervical Strain (गर्दन व कमर का संयुक्त घिसाव)"
+            ]
+            pearl = "In manual laborers and agricultural workers, simultaneous neck and lumbar pain without lower leg neurological deficits is typically axial muscle exhaustion. Treatment focuses on spinal decompression, magnesium/calcium nutrition, and thiocolchicoside muscle relaxation."
+
+        # 3. Cervical Brachial Radiation Pattern
+        elif has_cervical and has_arm:
+            pattern_id = "CERVICAL_BRACHIAL_RADIATION_PATH"
+            pattern_title_en = "Cervical Radiculopathy & Brachial Plexus Strain"
+            pattern_title_hi = "सर्वाइकल - गर्दन से कंधे और हाथ तक नस दबने का दर्द"
+            primary_region = "CERVICAL_SPINE"
+            path_summary_en = f"Radiation line tracked from cervical spine into upper extremity ({len(points)} points mapped). Indicates C5-C7 cervical nerve root impingement."
+            path_summary_hi = f"गर्दन से कंधे और हाथ तक दर्द का रास्ता चिह्नित ({len(points)} बिंदु)। यह गर्दन की नस (C5-C7) दबने का लक्षण है।"
+
+            doc_greeting_en = "Hello, I am Dr. AI. I notice the pain line radiates from your cervical spine down your arm. Let us check for cervical disc compression or brachial nerve irritation."
+            doc_greeting_hi = "नमस्ते, मैं आपका AI डॉक्टर हूँ। आपकी गर्दन से कंधे व हाथ तक नस का खिंचाव दिख रहा है। आइए जांच करते हैं कि कौन सी नस दब रही है।"
+
+            doc_questions = [
+                {
+                    "id": "Q_DOCTOR_CERVICAL_PINS",
+                    "prompt_en": "Do you experience tingling, pins-and-needles, or numbness in your fingers or forearm when turning your neck?",
+                    "prompt_hi": "क्या गर्दन घुमाने पर हाथ की उंगलियों में झनझनाहट, सुन्नपन या चींटियां चलने जैसा लगता है?",
+                    "choices": [
+                        {"value": "PINS_IN_FINGERS", "label": "Yes: Tingling & numbness in fingers/hand (हाँ, उंगलियों व हाथ में झनझनाहट होती है)"},
+                        {"value": "SHOULDER_ACHE_ONLY", "label": "No: Pain is localized to neck & top of shoulder (नहीं, केवल गर्दन व कंधे के ऊपर दर्द है)"}
+                    ]
+                }
+            ]
+
+            movements = [
+                {
+                    "test_id": "TEST_CERVICAL_ACTIVE_ROTATION",
+                    "title": "Active Cervical Range of Motion & Spurling",
+                    "instruction_en": "Slowly rotate your head to the symptomatic side and tilt back slightly. Camera tracks lateral flexion angle.",
+                    "instruction_hi": "गर्दन को धीरे-धीरे दर्द वाली तरफ घुमाएं और हल्का पीछे झुकाएं।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "CERVICAL_SPINE"
+                }
+            ]
+            provocative = []
+            differentials = [
+                "C5-C7 Cervical Disc Radiculopathy (गर्दन की नस दबना)",
+                "Cervical Spondylosis with Trapezius Myospasm (गर्दन का घिसाव व अकड़न)",
+                "Thoracic Outlet Syndrome (कंधे के पास नसों का दबाव)"
+            ]
+            pearl = "Spurling's maneuver (cervical extension and lateral rotation) narrowing the neural foramen confirms cervical nerve root impingement. McKenzie chin tucks relieve anterior disc pressure."
+
+        # 4. Multi-Focal General Pattern
+        else:
+            first_analysis = points_detail[0]
+            pattern_id = f"MULTI_POINT_{first_analysis.get('region_id', 'GENERAL')}"
+            pattern_title_en = f"Multi-Focal Pain Pattern: {first_analysis.get('display_name', 'Target Region')}"
+            pattern_title_hi = f"चिह्नित दर्द क्षेत्र: {first_analysis.get('display_name', 'शरीर का भाग')}"
+            primary_region = first_analysis.get("region_id", "LUMBAR_SPINE")
+            path_summary_en = f"{len(points)} distinct pain points localized on the 3D model. Tailored clinical evaluation active."
+            path_summary_hi = f"3D मॉडल पर {len(points)} दर्द के बिंदु चिह्नित किए गए। विस्तृत डॉक्टर जांच तैयार है।"
+
+            doc_greeting_en = f"Hello, I am Dr. AI. I have reviewed the {len(points)} painful locations you marked on your {first_analysis.get('display_name')}. Let us examine the cause of your discomfort."
+            doc_greeting_hi = f"नमस्ते, मैं आपका AI डॉक्टर हूँ। आपके द्वारा शरीर पर चिह्नित {len(points)} दर्द के बिंदुओं को मैंने देखा है। आइए आपकी स्थिति की विस्तृत जांच करते हैं।"
+
+            doc_questions = first_analysis.get("clinical_decisions", {}).get("diagnostic_questions", [])
+            movements = [t for t in first_analysis.get("clinical_decisions", {}).get("recommended_tests", []) if t.get("action_type") == "VIDEO_MOVEMENT"]
+            provocative = [t for t in first_analysis.get("clinical_decisions", {}).get("recommended_tests", []) if t.get("action_type") != "VIDEO_MOVEMENT"]
+            differentials = first_analysis.get("clinical_decisions", {}).get("differential_diagnosis", [])
+            pearl = first_analysis.get("clinical_decisions", {}).get("clinical_pearl", "")
+
+        # Always add guided palpation for each marked point
+        for i, pt_detail in enumerate(points_detail, 1):
+            pt_coord = pt_detail.get("point", {})
+            provocative.append({
+                "test_id": f"TEST_PALPATION_POINT_{i}",
+                "title": f"Focal Palpation: Point #{i} ({pt_detail.get('display_name', 'Target')})",
+                "instruction_en": f"Gently press on marked Point #{i} at [{pt_coord.get('x', 0):.2f}, {pt_coord.get('y', 0):.2f}, {pt_coord.get('z', 0):.2f}]. Rate the tenderness from 0 to 10.",
+                "instruction_hi": f"चिह्नित बिंदु #{i} पर धीरे से उंगली दबाएं और दर्द का स्तर 0 से 10 के बीच बताएं।",
+                "action_type": "PALPATION_SCORE",
+                "input_config": {"min_value": 0, "max_value": 10, "unit": "NRS (0-10)"}
+            })
+
+        return {
+            "pattern_id": pattern_id,
+            "pattern_title_en": pattern_title_en,
+            "pattern_title_hi": pattern_title_hi,
+            "is_radiation_line": is_line,
+            "total_points": len(points),
+            "primary_region": primary_region,
+            "affected_side": affected_side,
+            "path_summary_en": path_summary_en,
+            "path_summary_hi": path_summary_hi,
+            "doctor_consultation_greeting_en": doc_greeting_en,
+            "doctor_consultation_greeting_hi": doc_greeting_hi,
+            "doctor_questions": doc_questions,
+            "recommended_physical_movements": movements,
+            "provocative_tests": provocative,
+            "differential_diagnosis": differentials,
+            "clinical_pearl": pearl,
+            "points_detail": points_detail
+        }
+
+    @classmethod
+    def generate_protocol_steps_for_path(cls, path_analysis: Dict[str, Any]) -> List[ProtocolStepDef]:
+        """
+        Synthesizes examination steps for a multi-point or radiation path examination,
+        structured as an empathetic, authentic doctor consultation:
+        1. Doctor Greeting & Clinical History (Doctor asks questions)
+        2. Red-Flag Emergency Screening
+        3. Real Camera-Guided Physical Movements (MediaPipe CV Kinematics)
+        4. Provocative Orthopedic Tests (SLR, FAIR, etc.)
+        5. Guided Landmark Palpation
+        """
+        steps: List[ProtocolStepDef] = []
+        reg_id = path_analysis.get("primary_region", "CUSTOM_PATH")
+
+        # Step 1: Doctor Consultation Ingestion & Symptoms
+        for i, q in enumerate(path_analysis.get("doctor_questions", []), 1):
+            choices = q.get("choices")
+            if not choices:
+                choices = [
+                    {"value": "YES_SEVERE", "label": "Yes: Severe pain / pronounced limitation (हाँ, बहुत तेज दर्द है)"},
+                    {"value": "MODERATE_INTERMITTENT", "label": "Moderate / Intermittent discomfort (हल्का या बीच-बीच में होता है)"},
+                    {"value": "NO_NONE", "label": "No / Not present (नहीं, ऐसा नहीं होता)"}
+                ]
+            steps.append(
+                ProtocolStepDef(
+                    step_id=f"DOCTOR_CONSULT_{i}_{reg_id}",
+                    phase="LOCALIZATION",
+                    title=f"👨‍⚕️ Doctor Consultation: {q.get('id', 'SYMPTOM')}",
+                    operator_instruction=f"Doctor asks: {q.get('prompt_en')}",
+                    patient_question=q.get("prompt_en"),
+                    patient_question_hi=q.get("prompt_hi"),
+                    action_type="QUESTION_CHOICE",
+                    input_config={"choices": choices}
+                )
+            )
+
+        # Step 2: Red Flag Safety Screen
+        steps.append(
+            ProtocolStepDef(
+                step_id=f"RED_FLAG_{reg_id}",
+                phase="RED_FLAGS",
+                title=f"Safety Screening: Rule Out Emergency Spinal / Vascular Conditions",
+                operator_instruction="Screen for emergency neurological compromise (cauda equina, fracture, infection).",
+                patient_question="Do you have any loss of bowel or bladder control, numbness in the groin/saddle area, fever, or sudden leg giving way?",
+                patient_question_hi="क्या मल-मूत्र पर नियंत्रण खोना, जांघों के बीच सुन्नपन, तेज बुखार या पैर का अचानक लड़खड़ाना महसूस हुआ है?",
+                action_type="QUESTION_BOOLEAN",
+                input_config={"guidance": "Rule out Cauda Equina Syndrome / Severe Neurological Compression."},
+                is_red_flag=True,
+                abort_on_true=True,
+                red_flag_alert_reason="Suspected Cauda Equina Syndrome or Acute Neurological Emergency",
+                urgency_level="EMERGENCY_IMMEDIATE_ER"
+            )
+        )
+
+        # Step 3: Camera-Guided Physical Movements (Real Video Kinematics)
+        for mov in path_analysis.get("recommended_physical_movements", []):
+            steps.append(
+                ProtocolStepDef(
+                    step_id=mov["test_id"],
+                    phase="ACTIVE_ROM",
+                    title=f"🏃 Physical Movement Test: {mov['title']}",
+                    operator_instruction=mov.get("instruction_en", "Perform physical movement in front of camera."),
+                    patient_question=f"Doctor instructs: {mov.get('instruction_en')}",
+                    patient_question_hi=f"डॉक्टर निर्देश: {mov.get('instruction_hi')}",
+                    action_type="VIDEO_MOVEMENT",
+                    input_config={
+                        "target_joint": mov.get("target_joint", "SPINE_LUMBAR"),
+                        "plane": "SAGITTAL_CORONAL",
+                        "target_duration_sec": 7,
+                        "sample_clip_available": True
+                    }
+                )
+            )
+
+        # Step 4: Provocative Tests & Landmark Palpations
+        for prov in path_analysis.get("provocative_tests", []):
+            if prov.get("action_type") == "PALPATION_SCORE":
+                steps.append(
+                    ProtocolStepDef(
+                        step_id=prov["test_id"],
+                        phase="PALPATION",
+                        title=f"📍 {prov['title']}",
+                        operator_instruction=prov.get("instruction_en", "Apply pressure and score tenderness."),
+                        patient_question=prov.get("instruction_en"),
+                        patient_question_hi=prov.get("instruction_hi"),
+                        action_type="PALPATION_SCORE",
+                        input_config={"min_value": 0, "max_value": 10, "unit": "NRS (0-10)"}
+                    )
+                )
+            else:
+                steps.append(
+                    ProtocolStepDef(
+                        step_id=prov["test_id"],
+                        phase="FUNCTIONAL_TEST",
+                        title=f"🔬 {prov['title']}",
+                        operator_instruction=prov.get("instruction_en", "Perform provocative orthopedic maneuver."),
+                        patient_question=prov.get("instruction_en"),
+                        patient_question_hi=prov.get("instruction_hi"),
+                        action_type="QUESTION_CHOICE",
+                        input_config={
+                            "choices": [
+                                {"value": "NEGATIVE_NORMAL", "label": "Negative: No reproduction of radiating pain (सामान्य - दर्द नहीं हुआ)"},
+                                {"value": "POSITIVE_MILD_PAIN", "label": "Positive: Mild radiating pain reproduced (हल्का दर्द पैर में गया)"},
+                                {"value": "POSITIVE_SEVERE_PAIN", "label": "Positive: Severe shooting electric shock reproduced (तेज करंट जैसा दर्द उठा)"}
                             ]
                         }
                     )

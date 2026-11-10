@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import type { Examination, PatientCalibration, Point3D, PointAnalysis } from '../../types/examination';
+import type { Examination, PatientCalibration, Point3D, PointAnalysis, PainPathAnalysis } from '../../types/examination';
 import { calibratePatientMesh } from '../../services/api';
 import {
   AlertTriangle,
@@ -34,6 +34,7 @@ import {
   HelpCircle,
   Pill,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   getHindiQuestion,
@@ -61,7 +62,9 @@ interface AIWorkflowPanelProps {
     selected_region: string;
     affected_side: 'RIGHT' | 'LEFT';
     selected_point?: Point3D | null;
+    selected_points?: Point3D[] | null;
     point_analysis?: PointAnalysis | null;
+    pain_path_analysis?: PainPathAnalysis | null;
   }) => void;
   onSubmitStep: (payload: {
     response_boolean?: boolean;
@@ -75,10 +78,15 @@ interface AIWorkflowPanelProps {
   isSubmitting: boolean;
   selectedRegion: string;
   affectedSide: 'RIGHT' | 'LEFT';
-  onSelectRegion: (region: string, side: 'RIGHT' | 'LEFT') => void;
+  onSelectRegion?: (region: string, side: 'RIGHT' | 'LEFT') => void;
   selectedPoint?: Point3D | null;
+  selectedPoints?: Point3D[];
+  selectionMode?: 'POINT' | 'LINE';
+  onChangeSelectionMode?: (mode: 'POINT' | 'LINE') => void;
   pointAnalysis?: PointAnalysis | null;
+  painPathAnalysis?: PainPathAnalysis | null;
   onClearPoint?: () => void;
+  onClearPoints?: () => void;
 }
 
 export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
@@ -94,8 +102,13 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
   affectedSide,
   onSelectRegion,
   selectedPoint,
+  selectedPoints = [],
+  selectionMode: _selectionMode = 'LINE',
+  onChangeSelectionMode: _onChangeSelectionMode,
   pointAnalysis,
+  painPathAnalysis,
   onClearPoint,
+  onClearPoints,
 }) => {
   // Pre-exam form state
   const [patientId, setPatientId] = useState('PT-4821');
@@ -192,10 +205,6 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
       if (onCalibratePatient) {
         onCalibratePatient(calibration);
       }
-      if (calibration.detected_body_part && onSelectRegion) {
-        const part = calibration.detected_body_part;
-        onSelectRegion(part.region_id, part.side === 'BILATERAL' ? 'RIGHT' : part.side);
-      }
     } catch (err: any) {
       setCalibrationError(err.message || 'Failed to calibrate patient mesh from photo.');
     } finally {
@@ -214,10 +223,6 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
       if (onCalibratePatient) {
         onCalibratePatient(calibration);
       }
-      if (calibration.detected_body_part && onSelectRegion) {
-        const part = calibration.detected_body_part;
-        onSelectRegion(part.region_id, part.side === 'BILATERAL' ? 'RIGHT' : part.side);
-      }
     } catch (err: any) {
       setCalibrationError(err.message || 'Failed to calibrate patient mesh from uploaded photo.');
     } finally {
@@ -233,10 +238,6 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
       const calibration = await calibratePatientMesh(null, true);
       if (onCalibratePatient) {
         onCalibratePatient(calibration);
-      }
-      if (calibration.detected_body_part && onSelectRegion) {
-        const part = calibration.detected_body_part;
-        onSelectRegion(part.region_id, part.side === 'BILATERAL' ? 'RIGHT' : part.side);
       }
     } catch (err: any) {
       setCalibrationError(err.message || 'Instant biometric calibration failed.');
@@ -643,26 +644,26 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                   {/* Action Buttons to Capture, Upload, or Instant Demo */}
                   {!isPhotoCameraOpen && (
                     <div className="space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2.5">
                         <button
                           type="button"
                           onClick={handleStartPhotoCamera}
                           disabled={isCalibratingPhoto}
-                          className="py-2.5 px-3 bg-cyan-700/80 hover:bg-cyan-600 text-white text-xs font-bold rounded-xl border border-cyan-500/60 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                          className="btn-webcam py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                         >
-                          <Camera className="w-3.5 h-3.5 text-cyan-200" />
-                          Live Webcam Photo
+                          <Camera className="w-4 h-4 text-white" />
+                          <span>Live Webcam Photo</span>
                         </button>
 
-                        <label className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md">
-                          <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                          Upload Photo File
+                        <label className="btn-upload py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md">
+                          <Upload className="w-4 h-4 text-cyan-400" />
+                          <span>Upload Photo File</span>
                           <input
                             type="file"
                             accept="image/*"
                             onChange={handleUploadPhoto}
                             disabled={isCalibratingPhoto}
-                            className="hidden"
+                            style={{ display: 'none' }}
                           />
                         </label>
                       </div>
@@ -672,10 +673,10 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                         type="button"
                         onClick={handleInstantDemoCalibration}
                         disabled={isCalibratingPhoto}
-                        className="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-cyan-300 text-xs font-bold rounded-xl border border-dashed border-cyan-500/50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                        className="btn-fasttrack w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                        ⚡ Instant Clinical Biometric Calibration (Demo/Fast-Track)
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        <span>Instant Clinical Biometric Calibration (Fast-Track)</span>
                       </button>
                     </div>
                   )}
@@ -726,18 +727,10 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                           </div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (patientCalibration.detected_body_part && onSelectRegion) {
-                            const p = patientCalibration.detected_body_part;
-                            onSelectRegion(p.region_id, p.side === 'BILATERAL' ? 'RIGHT' : p.side);
-                          }
-                        }}
-                        className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold rounded-lg transition-colors shadow flex items-center gap-1 cursor-pointer"
-                      >
-                        Start Exam
-                      </button>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-950/80 text-cyan-300 border border-cyan-500/50 text-[11px] font-bold rounded-lg">
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Mesh Ready</span>
+                      </div>
                     </div>
                   )}
 
@@ -818,8 +811,147 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
               </div>
             </div>
 
-            {/* If 3D Point is Selected: Show Detailed AI Decision & Treatment Strategy Card */}
-            {pointAnalysis && selectedPoint && (
+            {/* If Radiation Line or Multiple Points are Marked: Show Comprehensive Doctor Exam Protocol Ready Card */}
+            {painPathAnalysis && selectedPoints && selectedPoints.length > 0 && (
+              <div className="bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border-2 border-amber-400/90 rounded-2xl p-4 shadow-2xl space-y-3.5 animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-amber-500/30 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-amber-500/20 rounded-xl border border-amber-400 text-amber-300">
+                      <Zap className="w-5 h-5 text-amber-400 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-300 bg-amber-950 px-2 py-0.5 rounded border border-amber-700">
+                          {painPathAnalysis.is_radiation_line ? 'Pain Radiation Trajectory' : 'Multi-Point Tender Zones'}
+                        </span>
+                        <span className="text-[10px] text-cyan-300 font-mono">
+                          {painPathAnalysis.total_points} Points Marked
+                        </span>
+                      </div>
+                      <h3 className="text-sm font-bold text-white mt-0.5">
+                        {painPathAnalysis.pattern_title_en}
+                      </h3>
+                      <div className="text-[11px] text-amber-200 font-hindi">
+                        {painPathAnalysis.pattern_title_hi}
+                      </div>
+                    </div>
+                  </div>
+                  {onClearPoints && (
+                    <button
+                      type="button"
+                      onClick={onClearPoints}
+                      className="p-1 text-slate-400 hover:text-red-400 rounded transition-colors text-xs flex items-center gap-1 cursor-pointer"
+                      title="Clear Marked Points"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="text-[10px]">Clear</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Path Summary */}
+                <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800 text-xs space-y-1">
+                  <div className="text-[10px] text-amber-400 font-mono uppercase font-bold">
+                    Radiation Summary & Biomechanics
+                  </div>
+                  <div className="text-slate-200 font-medium leading-relaxed">
+                    {painPathAnalysis.path_summary_en}
+                  </div>
+                  {painPathAnalysis.path_summary_hi && (
+                    <div className="text-[11px] text-slate-400 font-hindi border-t border-slate-800 pt-1 mt-1 leading-relaxed">
+                      {painPathAnalysis.path_summary_hi}
+                    </div>
+                  )}
+                </div>
+
+                {/* Suspected Diagnoses */}
+                {painPathAnalysis.differential_diagnosis && painPathAnalysis.differential_diagnosis.length > 0 && (
+                  <div className="bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30 text-xs space-y-1.5">
+                    <div className="text-[10px] text-cyan-300 font-mono uppercase font-bold flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                        Suspected Differential Diagnoses
+                      </span>
+                      <span className="text-[9px] bg-cyan-900/80 text-cyan-200 px-1.5 py-0.2 rounded font-mono">
+                        Pattern AI Match
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {painPathAnalysis.differential_diagnosis.map((diff: string, i: number) => (
+                        <span
+                          key={i}
+                          className="text-[11px] bg-slate-900 text-cyan-200 border border-cyan-700/60 px-2 py-0.5 rounded-md font-medium"
+                        >
+                          {diff}
+                        </span>
+                      ))}
+                    </div>
+                    {painPathAnalysis.clinical_pearl && (
+                      <div className="text-[11px] text-amber-200/90 bg-amber-950/40 border border-amber-600/30 p-2 rounded-lg mt-1 leading-snug">
+                        <span className="font-bold text-amber-300">💡 Clinical Pearl: </span>
+                        {painPathAnalysis.clinical_pearl}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* AI Doctor Consultation Protocol Flow Preview */}
+                <div className="bg-blue-950/40 border border-blue-500/40 rounded-xl p-3 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-blue-300 uppercase font-mono flex items-center gap-1.5">
+                      👨‍⚕️ Real AI Doctor Examination Protocol:
+                    </span>
+                    <span className="text-[9px] bg-blue-900/80 text-blue-200 px-1.5 py-0.5 rounded font-mono">
+                      4-Phase Clinical Workflow
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-[11px] text-slate-300">
+                    <div className="flex items-center gap-2">
+                      <span className="text-cyan-400 font-bold">1. 👨‍⚕️</span>
+                      <span><strong>Doctor Consultation:</strong> Compassionate verbal dialogue (Hindi/English) asking onset & radiation sensations.</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-400 font-bold">2. 🛡️</span>
+                      <span><strong>Safety Stop Screen:</strong> Red flags & Cauda Equina / Myelopathy ruling out.</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-400 font-bold">3. 🏃</span>
+                      <span><strong>Real Physical Movement:</strong> MediaPipe live camera kinematics tracking flexion & range of motion.</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-emerald-400 font-bold">4. 🩺</span>
+                      <span><strong>Provocative Tests & Rx:</strong> Straight Leg Raise, Palpation, and Complete Doctor Prescription.</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Primary Button to Start AI Doctor Exam */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onStartExam({
+                      patient_id: patientId,
+                      patient_name: patientName,
+                      patient_age: patientAge,
+                      patient_gender: patientGender,
+                      selected_region: painPathAnalysis.primary_region || selectedRegion || 'LUMBAR_SPINE',
+                      affected_side: (painPathAnalysis.affected_side as any) || affectedSide,
+                      selected_point: selectedPoint,
+                      selected_points: selectedPoints,
+                      point_analysis: pointAnalysis,
+                      pain_path_analysis: painPathAnalysis,
+                    })
+                  }
+                  className="w-full py-3.5 bg-gradient-to-r from-emerald-600 via-cyan-600 to-blue-600 hover:from-emerald-500 hover:via-cyan-500 hover:to-blue-500 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-cyan-950 flex items-center justify-center gap-2.5 transition-all cursor-pointer transform hover:scale-[1.01]"
+                >
+                  <span className="text-base">🩺</span>
+                  <span>Start AI Doctor Examination (डॉक्टर जांच शुरू करें) →</span>
+                </button>
+              </div>
+            )}
+
+            {/* If Single 3D Point is Selected (and no radiation path): Show Detailed AI Decision & Treatment Strategy Card */}
+            {(!painPathAnalysis || !selectedPoints || selectedPoints.length < 2) && pointAnalysis && selectedPoint && (
               <div className="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-cyan-400 rounded-2xl p-4 shadow-2xl space-y-3 animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex items-center justify-between border-b border-cyan-500/30 pb-2">
                   <div className="flex items-center gap-2">
@@ -857,33 +989,43 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                   </div>
                 </div>
 
-                {/* Cloud AI Differential Diagnosis & Clinical Pearl */}
-                {pointAnalysis.cloud_ai_insights?.differential_diagnosis && pointAnalysis.cloud_ai_insights.differential_diagnosis.length > 0 && (
-                  <div className="bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30 text-xs space-y-1.5">
-                    <div className="text-[10px] text-cyan-300 font-mono uppercase font-bold flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                        Cloud AI Differential Diagnosis
-                      </span>
-                      <span className="text-[9px] bg-cyan-900/80 text-cyan-200 px-1.5 py-0.2 rounded font-mono">
-                        {pointAnalysis.cloud_ai_insights.model_used || 'nemotron-3-nano:30b'}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {pointAnalysis.cloud_ai_insights.differential_diagnosis.map((diff, i) => (
-                        <span key={i} className="text-[11px] bg-slate-900 text-cyan-200 border border-cyan-700/50 px-2 py-0.5 rounded-md">
-                          {diff}
+                {/* Differential Diagnosis & Clinical Pearl */}
+                {(() => {
+                  const diffs = pointAnalysis.cloud_ai_insights?.differential_diagnosis || pointAnalysis.clinical_decisions?.differential_diagnosis || [];
+                  const pearl = pointAnalysis.cloud_ai_insights?.clinical_pearl || pointAnalysis.clinical_decisions?.clinical_pearl;
+                  const modelName = pointAnalysis.cloud_ai_insights?.model_used || 'Clinical Knowledge Engine';
+
+                  if (diffs.length === 0 && !pearl) return null;
+
+                  return (
+                    <div className="bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30 text-xs space-y-1.5">
+                      <div className="text-[10px] text-cyan-300 font-mono uppercase font-bold flex items-center justify-between">
+                        <span className="flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                          Differential Diagnosis
                         </span>
-                      ))}
-                    </div>
-                    {pointAnalysis.cloud_ai_insights.clinical_pearl && (
-                      <div className="text-[11px] text-amber-200/90 bg-amber-950/40 border border-amber-600/30 p-2 rounded-lg mt-1 leading-snug">
-                        <span className="font-bold text-amber-300">💡 Clinical Pearl: </span>
-                        {pointAnalysis.cloud_ai_insights.clinical_pearl}
+                        <span className="text-[9px] bg-cyan-900/80 text-cyan-200 px-1.5 py-0.2 rounded font-mono">
+                          {modelName}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                )}
+                      {diffs.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {diffs.map((diff: string, i: number) => (
+                            <span key={i} className="text-[11px] bg-slate-900 text-cyan-200 border border-cyan-700/50 px-2 py-0.5 rounded-md">
+                              {diff}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {pearl && (
+                        <div className="text-[11px] text-amber-200/90 bg-amber-950/40 border border-amber-600/30 p-2 rounded-lg mt-1 leading-snug">
+                          <span className="font-bold text-amber-300">💡 Clinical Pearl: </span>
+                          {pearl}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Red Flag Screen */}
                 <div className="bg-red-950/70 border border-red-500/60 rounded-xl p-2.5 text-xs space-y-1.5">
@@ -1071,7 +1213,9 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      onSelectRegion(item.id, item.side);
+                      if (onSelectRegion) {
+                        onSelectRegion(item.id, item.side);
+                      }
                       onStartExam({
                         patient_id: patientId,
                         patient_name: patientName,
@@ -1355,6 +1499,56 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                       Action: {currentStep.action_type}
                     </span>
                   </div>
+
+                  {/* Doctor Consultation Persona Banner (Real Doctor Demeanor) */}
+                  {(currentStep.step_id.includes('DOCTOR_CONSULTATION') ||
+                    currentStep.title.toLowerCase().includes('consultation') ||
+                    currentStep.phase === 'LOCALIZATION') && (
+                    <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-cyan-950 border-2 border-cyan-400 rounded-xl p-3 shadow-lg flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-400 flex items-center justify-center text-xl shadow-inner flex-shrink-0">
+                        👨‍⚕️
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
+                            AI Doctor Consultation • डॉक्टर परामर्श
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                            Doctor Speaking
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-white mt-0.5">
+                          Dr. AI Orthopedic Consultant (वरिष्ठ अस्थिरोग विशेषज्ञ)
+                        </h4>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Real Physical Movement Kinematics Banner */}
+                  {(currentStep.action_type === 'VIDEO_MOVEMENT' ||
+                    currentStep.title.toLowerCase().includes('movement') ||
+                    currentStep.title.toLowerCase().includes('arom')) && (
+                    <div className="bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/60 border-2 border-amber-500/80 rounded-xl p-3 shadow-lg flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center text-xl shadow-inner flex-shrink-0">
+                        🏃
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-300 bg-amber-950 px-2 py-0.5 rounded border border-amber-800">
+                            Physical Movement Test • शारीरिक हलचल परीक्षण
+                          </span>
+                          <span className="text-[10px] text-cyan-400 font-bold flex items-center gap-1">
+                            <Activity className="w-3 h-3 text-cyan-400 animate-pulse" />
+                            MediaPipe Active
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-white mt-0.5">
+                          Real-time Joint Motion Tracking & ROM Analysis
+                        </h4>
+                      </div>
+                    </div>
+                  )}
 
                   <h3 className="text-sm font-bold text-white">
                     {currentStep.title}
@@ -1642,14 +1836,14 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                           </button>
                         )}
 
-                        <label className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer">
+                        <label className="btn-upload py-2.5 px-3 rounded-lg text-xs font-bold text-cyan-300 flex items-center justify-center gap-1.5 cursor-pointer">
                           <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                          Upload Video File
+                          <span>Upload Video File</span>
                           <input
                             type="file"
                             accept="video/*"
                             onChange={handleFileChange}
-                            className="hidden"
+                            style={{ display: 'none' }}
                           />
                         </label>
                       </div>

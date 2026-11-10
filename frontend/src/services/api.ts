@@ -38,6 +38,30 @@ export async function analyzeBodyPoint(
   return response.json();
 }
 
+export async function analyzePainPath(
+  points: Array<{ point: { x: number; y: number; z: number }; normal?: { x: number; y: number; z: number } }>,
+  pathType: 'POINT' | 'LINE' = 'POINT',
+  affectedSide: string = 'RIGHT',
+  patientCalibration?: PatientCalibration | null
+): Promise<any> {
+  const response = await fetch(`${API_BASE}/examinations/analyze-pain-path`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      points,
+      path_type: pathType,
+      affected_side: affectedSide,
+      patient_calibration: patientCalibration,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to analyze pain path' }));
+    throw new Error(parseApiError(err, 'Failed to analyze pain path'));
+  }
+  return response.json();
+}
+
 export async function calibratePatientMesh(
   photoFile?: File | null,
   isDemo?: boolean
@@ -72,7 +96,9 @@ export async function createExamination(data: {
   patient_orientation?: string;
   patient_calibration?: PatientCalibration | null;
   selected_point?: Point3D | null;
+  selected_points?: Point3D[] | null;
   point_analysis?: PointAnalysis | null;
+  pain_path_analysis?: any | null;
 }): Promise<Examination> {
   const response = await fetch(`${API_BASE}/examinations`, {
     method: 'POST',

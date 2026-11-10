@@ -14,7 +14,39 @@ class ExaminationCreate(BaseModel):
     patient_orientation: str = Field(default="SAGITTAL_RIGHT", description="Viewing profile")
     patient_calibration: Optional[Dict[str, Any]] = None
     selected_point: Optional[Dict[str, Any]] = None
+    selected_points: Optional[List[Dict[str, Any]]] = None
     point_analysis: Optional[Dict[str, Any]] = None
+    pain_path_analysis: Optional[Dict[str, Any]] = None
+
+class PainPointItem(BaseModel):
+    point: Dict[str, float]
+    normal: Optional[Dict[str, float]] = None
+
+class AnalyzePainPathRequest(BaseModel):
+    points: List[PainPointItem] = Field(..., description="List of 3D points forming marked painful locations or pain radiation line")
+    path_type: str = Field(default="POINT", description="'POINT' for multiple focal spots, 'LINE' for pain radiation line")
+    affected_side: Optional[str] = "RIGHT"
+    patient_calibration: Optional[Dict[str, Any]] = None
+
+class PainPathAnalysisResponse(BaseModel):
+    pattern_id: str
+    pattern_title_en: str
+    pattern_title_hi: str
+    is_radiation_line: bool
+    total_points: int
+    primary_region: str
+    affected_side: str
+    path_summary_en: str
+    path_summary_hi: str
+    doctor_consultation_greeting_en: str
+    doctor_consultation_greeting_hi: str
+    doctor_questions: List[Dict[str, Any]]
+    recommended_physical_movements: List[Dict[str, Any]]
+    provocative_tests: List[Dict[str, Any]]
+    differential_diagnosis: List[str]
+    clinical_pearl: str
+    prescriptions: Dict[str, Any]
+    points_detail: List[Dict[str, Any]]
 
 class AnalyzePointRequest(BaseModel):
     point: Dict[str, float] = Field(..., description="Exact 3D coordinates {x, y, z} clicked on the body mesh")

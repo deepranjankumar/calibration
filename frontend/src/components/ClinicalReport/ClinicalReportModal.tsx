@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { StructuredClinicalReport, FinalPrescription, MedicationPrescription, ExercisePrescription } from '../../types/examination';
 import { getStructuredReport, signOffReport, updatePrescription } from '../../services/api';
 import {
@@ -870,6 +871,17 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  // Handle ESC key to dismiss modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   // Active prescription display
@@ -918,11 +930,52 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
     return matchesCategory && matchesSearch;
   });
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-5xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden my-auto print-modal-window">
+  return createPortal(
+    <div
+      className="report-modal-portal fixed inset-0 flex items-center justify-center p-3 sm:p-5"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh',
+        zIndex: 999999,
+        backgroundColor: 'rgba(3, 7, 18, 0.96)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.25rem',
+        boxSizing: 'border-box',
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-5xl flex flex-col shadow-2xl overflow-hidden print-modal-window"
+        style={{
+          maxHeight: '92vh',
+          height: '92vh',
+          display: 'flex',
+          flexDirection: 'column',
+          backgroundColor: '#0e1526',
+          border: '1.5px solid #334155',
+          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 50px rgba(6, 182, 212, 0.2)',
+          overflow: 'hidden',
+          position: 'relative',
+          zIndex: 1000000,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Top Header (No-print) */}
-        <div className="bg-slate-950 px-6 py-4 border-b border-slate-800 flex items-center justify-between no-print">
+        <div
+          className="bg-slate-950 px-6 py-4 border-b border-slate-800 flex items-center justify-between no-print"
+          style={{ flexShrink: 0 }}
+        >
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-emerald-950 border border-emerald-500/40 rounded-xl text-emerald-400">
               <Stethoscope className="w-5 h-5" />
@@ -978,16 +1031,22 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
               <Download className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500 rounded-lg transition-all cursor-pointer font-bold text-xs shadow"
+              title="Close Report (Esc)"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 text-rose-400" />
+              <span>Close (बंद करें)</span>
             </button>
           </div>
         </div>
 
         {/* Tab Switcher (No-print) */}
-        <div className="bg-slate-950/90 px-6 py-2.5 border-b border-slate-800 flex items-center justify-between no-print">
+        <div
+          className="bg-slate-950/90 px-6 py-2.5 border-b border-slate-800 flex items-center justify-between no-print"
+          style={{ flexShrink: 0 }}
+        >
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -1038,7 +1097,10 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
         )}
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 text-slate-200 print-document-body">
+        <div
+          className="flex-1 overflow-y-auto p-6 space-y-6 text-slate-200 print-document-body"
+          style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}
+        >
           {loading && (
             <div className="text-center py-12 text-slate-400">
               Loading clinical records and synthesizing targeted prescription...
@@ -1111,20 +1173,20 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* AI Model Autonomous Prescription Banner */}
-                    <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-slate-900 border border-emerald-500/50 rounded-xl p-3 flex items-start gap-2.5">
-                      <div className="p-1.5 bg-emerald-900/80 text-emerald-300 rounded-lg flex-shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                    {/* AI Model Autonomous Exercise Prescription Banner */}
+                    <div className="bg-gradient-to-r from-cyan-950/80 via-blue-950/60 to-slate-900 border border-cyan-500/50 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-cyan-900/80 text-cyan-300 rounded-lg flex-shrink-0 mt-0.5">
+                        <Dumbbell className="w-4 h-4 text-cyan-400" />
                       </div>
                       <div className="text-xs space-y-0.5">
-                        <div className="font-bold text-emerald-300 flex items-center gap-2">
-                          <span>🤖 AI Model Autonomous Clinical Prescription (एआई मॉडल द्वारा स्वचालित निर्धारित दवाइयां)</span>
-                          <span className="text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-600 px-2 py-0.5 rounded-full font-mono">
-                            Auto-Generated from All Exam Findings
+                        <div className="font-bold text-cyan-300 flex items-center gap-2">
+                          <span>🏃 AI Targeted Rehabilitation Protocol (एआई मॉडल द्वारा स्वचालित निर्धारित कसरत व फिजियोथेरेपी)</span>
+                          <span className="text-[10px] bg-cyan-900/90 text-cyan-200 border border-cyan-600 px-2 py-0.5 rounded-full font-mono">
+                            Biomechanical ROM Guided
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          3D शरीर पर इंगित बिंदु, रोगी द्वारा बताए गए लक्षण, दर्द स्कोर और कंप्यूटर विज़न गति (ROM) की पूरी जांच के आधार पर मॉडल ने यह संपूर्ण पर्चा तैयार किया है। ऑपरेटर को दवा लिखने की आवश्यकता नहीं है; पर्चा सीधे प्रिंट के लिए तैयार है।
+                          कंप्यूटर विज़न द्वारा मापी गई जोड़ गति (ROM), 3D शरीर पर चिह्नित दर्द बिंदु और रोगी के लक्षणों के आधार पर यह व्यक्तिगत फिजियोथेरेपी योजना तैयार की गई है।
                         </p>
                       </div>
                     </div>
@@ -1169,20 +1231,20 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* AI Model Autonomous Prescription Banner */}
-                    <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-slate-900 border border-emerald-500/50 rounded-xl p-3 flex items-start gap-2.5">
-                      <div className="p-1.5 bg-emerald-900/80 text-emerald-300 rounded-lg flex-shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                    {/* AI Model Autonomous Exercise Prescription Banner */}
+                    <div className="bg-gradient-to-r from-cyan-950/80 via-blue-950/60 to-slate-900 border border-cyan-500/50 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-cyan-900/80 text-cyan-300 rounded-lg flex-shrink-0 mt-0.5">
+                        <Dumbbell className="w-4 h-4 text-cyan-400" />
                       </div>
                       <div className="text-xs space-y-0.5">
-                        <div className="font-bold text-emerald-300 flex items-center gap-2">
-                          <span>🤖 AI Model Autonomous Clinical Prescription (एआई मॉडल द्वारा स्वचालित निर्धारित दवाइयां)</span>
-                          <span className="text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-600 px-2 py-0.5 rounded-full font-mono">
-                            Auto-Generated from All Exam Findings
+                        <div className="font-bold text-cyan-300 flex items-center gap-2">
+                          <span>🏃 AI Targeted Rehabilitation Protocol (एआई मॉडल द्वारा स्वचालित निर्धारित कसरत व फिजियोथेरेपी)</span>
+                          <span className="text-[10px] bg-cyan-900/90 text-cyan-200 border border-cyan-600 px-2 py-0.5 rounded-full font-mono">
+                            Biomechanical ROM Guided
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          3D शरीर पर इंगित बिंदु, रोगी द्वारा बताए गए लक्षण, दर्द स्कोर और कंप्यूटर विज़न गति (ROM) की पूरी जांच के आधार पर मॉडल ने यह संपूर्ण पर्चा तैयार किया है। ऑपरेटर को दवा लिखने की आवश्यकता नहीं है; पर्चा सीधे प्रिंट के लिए तैयार है।
+                          कंप्यूटर विज़न द्वारा मापी गई जोड़ गति (ROM), 3D शरीर पर चिह्नित दर्द बिंदु और रोगी के लक्षणों के आधार पर यह व्यक्तिगत फिजियोथेरेपी योजना तैयार की गई है।
                         </p>
                       </div>
                     </div>
@@ -1265,10 +1327,6 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                         </p>
                       </div>
                     </div>
-
-                    {/* ============================================================== */}
-                    {/* PURNEA (BIHAR) REGIONAL CLINICAL FORMULARY QUICK-PRESETS BAR */}
-                    {/* ============================================================== */}
                     {isEditing && (
                       <div className="p-4 bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-emerald-500/40 rounded-2xl space-y-3 no-print">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
@@ -1569,20 +1627,20 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* AI Model Autonomous Prescription Banner */}
-                    <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-slate-900 border border-emerald-500/50 rounded-xl p-3 flex items-start gap-2.5">
-                      <div className="p-1.5 bg-emerald-900/80 text-emerald-300 rounded-lg flex-shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                    {/* AI Model Autonomous Exercise Prescription Banner */}
+                    <div className="bg-gradient-to-r from-cyan-950/80 via-blue-950/60 to-slate-900 border border-cyan-500/50 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-cyan-900/80 text-cyan-300 rounded-lg flex-shrink-0 mt-0.5">
+                        <Dumbbell className="w-4 h-4 text-cyan-400" />
                       </div>
                       <div className="text-xs space-y-0.5">
-                        <div className="font-bold text-emerald-300 flex items-center gap-2">
-                          <span>🤖 AI Model Autonomous Clinical Prescription (एआई मॉडल द्वारा स्वचालित निर्धारित दवाइयां)</span>
-                          <span className="text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-600 px-2 py-0.5 rounded-full font-mono">
-                            Auto-Generated from All Exam Findings
+                        <div className="font-bold text-cyan-300 flex items-center gap-2">
+                          <span>🏃 AI Targeted Rehabilitation Protocol (एआई मॉडल द्वारा स्वचालित निर्धारित कसरत व फिजियोथेरेपी)</span>
+                          <span className="text-[10px] bg-cyan-900/90 text-cyan-200 border border-cyan-600 px-2 py-0.5 rounded-full font-mono">
+                            Biomechanical ROM Guided
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          3D शरीर पर इंगित बिंदु, रोगी द्वारा बताए गए लक्षण, दर्द स्कोर और कंप्यूटर विज़न गति (ROM) की पूरी जांच के आधार पर मॉडल ने यह संपूर्ण पर्चा तैयार किया है। ऑपरेटर को दवा लिखने की आवश्यकता नहीं है; पर्चा सीधे प्रिंट के लिए तैयार है।
+                          कंप्यूटर विज़न द्वारा मापी गई जोड़ गति (ROM), 3D शरीर पर चिह्नित दर्द बिंदु और रोगी के लक्षणों के आधार पर यह व्यक्तिगत फिजियोथेरेपी योजना तैयार की गई है।
                         </p>
                       </div>
                     </div>
@@ -1749,20 +1807,20 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* AI Model Autonomous Prescription Banner */}
-                    <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-slate-900 border border-emerald-500/50 rounded-xl p-3 flex items-start gap-2.5">
-                      <div className="p-1.5 bg-emerald-900/80 text-emerald-300 rounded-lg flex-shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                    {/* AI Model Autonomous Exercise Prescription Banner */}
+                    <div className="bg-gradient-to-r from-cyan-950/80 via-blue-950/60 to-slate-900 border border-cyan-500/50 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-cyan-900/80 text-cyan-300 rounded-lg flex-shrink-0 mt-0.5">
+                        <Dumbbell className="w-4 h-4 text-cyan-400" />
                       </div>
                       <div className="text-xs space-y-0.5">
-                        <div className="font-bold text-emerald-300 flex items-center gap-2">
-                          <span>🤖 AI Model Autonomous Clinical Prescription (एआई मॉडल द्वारा स्वचालित निर्धारित दवाइयां)</span>
-                          <span className="text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-600 px-2 py-0.5 rounded-full font-mono">
-                            Auto-Generated from All Exam Findings
+                        <div className="font-bold text-cyan-300 flex items-center gap-2">
+                          <span>🏃 AI Targeted Rehabilitation Protocol (एआई मॉडल द्वारा स्वचालित निर्धारित कसरत व फिजियोथेरेपी)</span>
+                          <span className="text-[10px] bg-cyan-900/90 text-cyan-200 border border-cyan-600 px-2 py-0.5 rounded-full font-mono">
+                            Biomechanical ROM Guided
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          3D शरीर पर इंगित बिंदु, रोगी द्वारा बताए गए लक्षण, दर्द स्कोर और कंप्यूटर विज़न गति (ROM) की पूरी जांच के आधार पर मॉडल ने यह संपूर्ण पर्चा तैयार किया है। ऑपरेटर को दवा लिखने की आवश्यकता नहीं है; पर्चा सीधे प्रिंट के लिए तैयार है।
+                          कंप्यूटर विज़न द्वारा मापी गई जोड़ गति (ROM), 3D शरीर पर चिह्नित दर्द बिंदु और रोगी के लक्षणों के आधार पर यह व्यक्तिगत फिजियोथेरेपी योजना तैयार की गई है।
                         </p>
                       </div>
                     </div>
@@ -1783,20 +1841,20 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* AI Model Autonomous Prescription Banner */}
-                    <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-slate-900 border border-emerald-500/50 rounded-xl p-3 flex items-start gap-2.5">
-                      <div className="p-1.5 bg-emerald-900/80 text-emerald-300 rounded-lg flex-shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                    {/* AI Model Autonomous Exercise Prescription Banner */}
+                    <div className="bg-gradient-to-r from-cyan-950/80 via-blue-950/60 to-slate-900 border border-cyan-500/50 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-cyan-900/80 text-cyan-300 rounded-lg flex-shrink-0 mt-0.5">
+                        <Dumbbell className="w-4 h-4 text-cyan-400" />
                       </div>
                       <div className="text-xs space-y-0.5">
-                        <div className="font-bold text-emerald-300 flex items-center gap-2">
-                          <span>🤖 AI Model Autonomous Clinical Prescription (एआई मॉडल द्वारा स्वचालित निर्धारित दवाइयां)</span>
-                          <span className="text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-600 px-2 py-0.5 rounded-full font-mono">
-                            Auto-Generated from All Exam Findings
+                        <div className="font-bold text-cyan-300 flex items-center gap-2">
+                          <span>🏃 AI Targeted Rehabilitation Protocol (एआई मॉडल द्वारा स्वचालित निर्धारित कसरत व फिजियोथेरेपी)</span>
+                          <span className="text-[10px] bg-cyan-900/90 text-cyan-200 border border-cyan-600 px-2 py-0.5 rounded-full font-mono">
+                            Biomechanical ROM Guided
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          3D शरीर पर इंगित बिंदु, रोगी द्वारा बताए गए लक्षण, दर्द स्कोर और कंप्यूटर विज़न गति (ROM) की पूरी जांच के आधार पर मॉडल ने यह संपूर्ण पर्चा तैयार किया है। ऑपरेटर को दवा लिखने की आवश्यकता नहीं है; पर्चा सीधे प्रिंट के लिए तैयार है।
+                          कंप्यूटर विज़न द्वारा मापी गई जोड़ गति (ROM), 3D शरीर पर चिह्नित दर्द बिंदु और रोगी के लक्षणों के आधार पर यह व्यक्तिगत फिजियोथेरेपी योजना तैयार की गई है।
                         </p>
                       </div>
                     </div>
@@ -1966,20 +2024,20 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* AI Model Autonomous Prescription Banner */}
-                    <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-slate-900 border border-emerald-500/50 rounded-xl p-3 flex items-start gap-2.5">
-                      <div className="p-1.5 bg-emerald-900/80 text-emerald-300 rounded-lg flex-shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                    {/* AI Model Autonomous Exercise Prescription Banner */}
+                    <div className="bg-gradient-to-r from-cyan-950/80 via-blue-950/60 to-slate-900 border border-cyan-500/50 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-cyan-900/80 text-cyan-300 rounded-lg flex-shrink-0 mt-0.5">
+                        <Dumbbell className="w-4 h-4 text-cyan-400" />
                       </div>
                       <div className="text-xs space-y-0.5">
-                        <div className="font-bold text-emerald-300 flex items-center gap-2">
-                          <span>🤖 AI Model Autonomous Clinical Prescription (एआई मॉडल द्वारा स्वचालित निर्धारित दवाइयां)</span>
-                          <span className="text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-600 px-2 py-0.5 rounded-full font-mono">
-                            Auto-Generated from All Exam Findings
+                        <div className="font-bold text-cyan-300 flex items-center gap-2">
+                          <span>🏃 AI Targeted Rehabilitation Protocol (एआई मॉडल द्वारा स्वचालित निर्धारित कसरत व फिजियोथेरेपी)</span>
+                          <span className="text-[10px] bg-cyan-900/90 text-cyan-200 border border-cyan-600 px-2 py-0.5 rounded-full font-mono">
+                            Biomechanical ROM Guided
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          3D शरीर पर इंगित बिंदु, रोगी द्वारा बताए गए लक्षण, दर्द स्कोर और कंप्यूटर विज़न गति (ROM) की पूरी जांच के आधार पर मॉडल ने यह संपूर्ण पर्चा तैयार किया है। ऑपरेटर को दवा लिखने की आवश्यकता नहीं है; पर्चा सीधे प्रिंट के लिए तैयार है।
+                          कंप्यूटर विज़न द्वारा मापी गई जोड़ गति (ROM), 3D शरीर पर चिह्नित दर्द बिंदु और रोगी के लक्षणों के आधार पर यह व्यक्तिगत फिजियोथेरेपी योजना तैयार की गई है।
                         </p>
                       </div>
                     </div>
@@ -2012,20 +2070,20 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* AI Model Autonomous Prescription Banner */}
-                    <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-slate-900 border border-emerald-500/50 rounded-xl p-3 flex items-start gap-2.5">
-                      <div className="p-1.5 bg-emerald-900/80 text-emerald-300 rounded-lg flex-shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                    {/* AI Model Autonomous Exercise Prescription Banner */}
+                    <div className="bg-gradient-to-r from-cyan-950/80 via-blue-950/60 to-slate-900 border border-cyan-500/50 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-cyan-900/80 text-cyan-300 rounded-lg flex-shrink-0 mt-0.5">
+                        <Dumbbell className="w-4 h-4 text-cyan-400" />
                       </div>
                       <div className="text-xs space-y-0.5">
-                        <div className="font-bold text-emerald-300 flex items-center gap-2">
-                          <span>🤖 AI Model Autonomous Clinical Prescription (एआई मॉडल द्वारा स्वचालित निर्धारित दवाइयां)</span>
-                          <span className="text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-600 px-2 py-0.5 rounded-full font-mono">
-                            Auto-Generated from All Exam Findings
+                        <div className="font-bold text-cyan-300 flex items-center gap-2">
+                          <span>🏃 AI Targeted Rehabilitation Protocol (एआई मॉडल द्वारा स्वचालित निर्धारित कसरत व फिजियोथेरेपी)</span>
+                          <span className="text-[10px] bg-cyan-900/90 text-cyan-200 border border-cyan-600 px-2 py-0.5 rounded-full font-mono">
+                            Biomechanical ROM Guided
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          3D शरीर पर इंगित बिंदु, रोगी द्वारा बताए गए लक्षण, दर्द स्कोर और कंप्यूटर विज़न गति (ROM) की पूरी जांच के आधार पर मॉडल ने यह संपूर्ण पर्चा तैयार किया है। ऑपरेटर को दवा लिखने की आवश्यकता नहीं है; पर्चा सीधे प्रिंट के लिए तैयार है।
+                          कंप्यूटर विज़न द्वारा मापी गई जोड़ गति (ROM), 3D शरीर पर चिह्नित दर्द बिंदु और रोगी के लक्षणों के आधार पर यह व्यक्तिगत फिजियोथेरेपी योजना तैयार की गई है।
                         </p>
                       </div>
                     </div>
@@ -2157,6 +2215,7 @@ export const ClinicalReportModal: React.FC<ClinicalReportModalProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

@@ -131,11 +131,17 @@ export async function submitStepJson(
     use_synthetic_kinematic_demo?: boolean;
   }
 ): Promise<Examination> {
-  const response = await fetch(`${API_BASE}/examinations/${examId}/steps/${stepId}/submit-json`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/examinations/${examId}/steps/${stepId}/submit-json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  } catch (err: any) {
+    throw new Error(`Cannot reach Backend Server at http://localhost:8000 (${err.message || 'Connection refused'}). Please verify backend is running.`);
+  }
+
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: 'Submission failed' }));
     throw new Error(err.detail || 'Submission failed');
@@ -148,10 +154,16 @@ export async function submitStepFormData(
   stepId: string,
   formData: FormData
 ): Promise<Examination> {
-  const response = await fetch(`${API_BASE}/examinations/${examId}/steps/${stepId}/submit`, {
-    method: 'POST',
-    body: formData,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/examinations/${examId}/steps/${stepId}/submit`, {
+      method: 'POST',
+      body: formData,
+    });
+  } catch (err: any) {
+    throw new Error(`Cannot reach Backend Server at http://localhost:8000 (${err.message || 'Connection refused'}). Please verify backend is running.`);
+  }
+
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: 'Submission failed' }));
     throw new Error(err.detail || 'Submission failed');

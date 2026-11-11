@@ -213,11 +213,12 @@ class BiomechanicalPoseAnalyzer:
                     lms_det = result.pose_landmarks[0]
                     mid_h_x = (lms_det[23].x + lms_det[24].x) / 2.0
                     mid_h_y = (lms_det[23].y + lms_det[24].y) / 2.0
-                    torso_scale = 0.55 / max(0.1, abs(mid_h_y - (lms_det[11].y + lms_det[12].y) / 2.0))
+                    torso_dist = max(0.08, abs(mid_h_y - (lms_det[11].y + lms_det[12].y) / 2.0))
+                    torso_scale = 0.52 / torso_dist
                     for idx_lm, lm_obj in enumerate(lms_det):
                         frame_lms.append({
                             "id": idx_lm,
-                            "x": round(float(-(lm_obj.x - mid_h_x) * torso_scale), 3),
+                            "x": round(float((lm_obj.x - mid_h_x) * torso_scale), 3),
                             "y": round(float(-(lm_obj.y - mid_h_y) * torso_scale), 3),
                             "z": round(float(-lm_obj.z * torso_scale), 3),
                             "visibility": round(float(getattr(lm_obj, "visibility", 1.0) or 0.8), 2)

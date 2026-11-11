@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
@@ -14,6 +14,7 @@ interface PatientSpecificMeshProps {
   measurements?: BiomechanicalMeasurement[];
   findings?: ClinicalFinding[];
   isExamActive: boolean;
+  isMotionActive?: boolean;
   selectedPoint?: Point3D | null;
   selectedPoints?: Point3D[];
   selectionMode?: 'POINT' | 'LINE';
@@ -39,7 +40,7 @@ const RadiationCylinder: React.FC<{
 
   return (
     <group>
-      <mesh position={position} quaternion={quaternion}>
+      <mesh position={position} quaternion={quaternion} raycast={() => null}>
         <cylinderGeometry args={[0.014, 0.014, length, 16]} />
         <meshStandardMaterial
           color={color}
@@ -51,7 +52,7 @@ const RadiationCylinder: React.FC<{
           depthWrite={false}
         />
       </mesh>
-      <mesh position={position} quaternion={quaternion}>
+      <mesh position={position} quaternion={quaternion} raycast={() => null}>
         <cylinderGeometry args={[0.006, 0.006, length, 16]} />
         <meshBasicMaterial
           color="#ffffff"
@@ -69,17 +70,17 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
   keyJoints,
   bodyProportions: _bodyProportions,
   selectedRegion,
-  onSelectRegion,
+  onSelectRegion: _onSelectRegion,
   affectedSide: _affectedSide,
   measurements = [],
   findings = [],
   isExamActive: _isExamActive,
+  isMotionActive = false,
   selectedPoint,
   selectedPoints,
-  selectionMode: _selectionMode,
+  selectionMode = 'LINE',
   onSelectPoint,
 }) => {
-  const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const pulseRef = useRef<THREE.Group>(null);
 
   // Active GLTF model: use patient's customized posed mesh if calibrated, otherwise fallback to canonical SMPL
@@ -163,7 +164,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
   return (
     <group position={[0, -0.05, 0]}>
       {/* --- PATIENT SPECIFIC POSED ANATOMICAL WIREFRAME MESH (IMAGE 1 AESTHETIC) --- */}
-      {bodyGeometry && (
+      {bodyGeometry && !isMotionActive && (
         <group>
           {/* Layer 1: Dark translucent silhouette core + Raycast surface listener for ANY POINT on patient body */}
           <mesh
@@ -191,20 +192,20 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
               roughness={0.5}
               metalness={0.1}
               transparent
-              opacity={0.65}
+              opacity={isMotionActive ? 0.25 : 0.65}
               depthWrite={false}
             />
           </mesh>
 
           {/* Layer 2: Radiant cyan wireframe topology (Getty Images aesthetic) */}
-          <mesh geometry={bodyGeometry}>
+          <mesh geometry={bodyGeometry} raycast={() => null}>
             <meshStandardMaterial
               color="#00e5ff"
               emissive="#00b4d8"
-              emissiveIntensity={0.4}
+              emissiveIntensity={isMotionActive ? 0.2 : 0.4}
               wireframe
               transparent
-              opacity={0.85}
+              opacity={isMotionActive ? 0.35 : 0.85}
             />
           </mesh>
         </group>
@@ -213,8 +214,9 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
       {/* --- MULTI-POINT & RADIATION LINE 3D PINS --- */}
       {selectedPoints && selectedPoints.length > 0 ? (
         <group>
-          {/* 3D Glowing Radiation Tube connecting consecutive nodes in LINE mode */}
-          {selectedPoints.length >= 2 &&
+          {/* 3D Glowing Radiation Tube connecting consecutive nodes ONLY in LINE mode */}
+          {selectionMode === 'LINE' &&
+            selectedPoints.length >= 2 &&
             selectedPoints.slice(0, -1).map((pt, idx) => {
               const nextPt = selectedPoints[idx + 1];
               return (
@@ -231,7 +233,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
           {selectedPoints.map((pt, idx) => (
             <group key={`pt-${idx}-${pt.x.toFixed(3)}-${pt.y.toFixed(3)}`} position={[pt.x, pt.y, pt.z]}>
               <group ref={idx === selectedPoints.length - 1 ? pulseRef : undefined}>
-                <mesh position={[0, 0, 0.02]}>
+                <mesh position={[0, 0, 0.02]} raycast={() => null}>
                   <ringGeometry args={[0.035, 0.065, 32]} />
                   <meshBasicMaterial
                     color={idx === 0 ? '#00e5ff' : '#f59e0b'}
@@ -243,7 +245,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
                 </mesh>
               </group>
 
-              <mesh>
+              <mesh raycast={() => null}>
                 <sphereGeometry args={[0.018, 16, 16]} />
                 <meshStandardMaterial
                   color={idx === 0 ? '#38bdf8' : '#fbbf24'}
@@ -254,8 +256,8 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
               </mesh>
 
               {/* Number Pin Badge */}
-              <Html position={[0, 0.045, 0]} center distanceFactor={3.5} style={{ pointerEvents: 'none' }}>
-                <div className="bg-slate-900/95 text-cyan-300 border border-cyan-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-lg">
+              <Html position={[0, 0.045, 0]} center distanceFactor={3.5} zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+                <div className="bg-slate-900/95 text-cyan-300 border border-cyan-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-lg pointer-events-none select-none">
                   {idx + 1}
                 </div>
               </Html>
@@ -268,7 +270,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
           <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
             {/* Animated radiating beacon pulse ring */}
             <group ref={pulseRef}>
-              <mesh position={[0, 0, 0.02]}>
+              <mesh position={[0, 0, 0.02]} raycast={() => null}>
                 <ringGeometry args={[0.045, 0.08, 32]} />
                 <meshBasicMaterial
                   color="#00e5ff"
@@ -278,7 +280,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
                   depthWrite={false}
                 />
               </mesh>
-              <mesh position={[0, 0, 0.025]}>
+              <mesh position={[0, 0, 0.025]} raycast={() => null}>
                 <ringGeometry args={[0.015, 0.035, 32]} />
                 <meshBasicMaterial
                   color="#f59e0b"
@@ -291,7 +293,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
             </group>
 
             {/* Glowing central target sphere */}
-            <mesh>
+            <mesh raycast={() => null}>
               <sphereGeometry args={[0.02, 16, 16]} />
               <meshStandardMaterial
                 color="#38bdf8"
@@ -304,100 +306,32 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
         )
       )}
 
-      {/* --- INTERACTIVE PATIENT JOINT ZONES (CLEAN: NO PERMANENT DOTS OR CLUTTER) --- */}
+      {/* --- ACTIVE PATIENT JOINT SELECTION INDICATOR (CLEAN: NO BLOCKING COLLIDERS OR HOVER TEXT) --- */}
       {patientZones.map((zone) => {
         const isSelected = selectedRegion === zone.id;
-        const isHovered = hoveredZone === zone.id;
+        if (!isSelected) return null;
 
         return (
-          <group key={zone.id} position={zone.pos}>
-            {/* Clickable invisible raycast collider: depthWrite=false ensures it NEVER punches holes in the mesh */}
-            <mesh
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onSelectRegion) {
-                  onSelectRegion(zone.id, zone.side === 'BILATERAL' ? 'RIGHT' : zone.side);
-                }
-              }}
-              onPointerOver={(e) => {
-                e.stopPropagation();
-                setHoveredZone(zone.id);
-                document.body.style.cursor = 'pointer';
-              }}
-              onPointerOut={() => {
-                setHoveredZone(null);
-                document.body.style.cursor = 'default';
-              }}
-            >
-              <sphereGeometry args={[0.09, 16, 16]} />
+          <group key={zone.id} position={zone.pos} ref={pulseRef}>
+            <mesh position={[0, 0, 0.03]} raycast={() => null}>
+              <ringGeometry args={[0.05, 0.085, 32]} />
               <meshBasicMaterial
+                color={jointColor}
+                side={THREE.DoubleSide}
                 transparent
-                opacity={0}
+                opacity={0.9}
                 depthWrite={false}
               />
             </mesh>
-
-            {/* Glowing cyan hover indicator ring (ONLY rendered when hovering) */}
-            {isHovered && !isSelected && (
-              <mesh position={[0, 0, 0.02]}>
-                <ringGeometry args={[0.04, 0.065, 32]} />
-                <meshBasicMaterial
-                  color="#00e5ff"
-                  side={THREE.DoubleSide}
-                  transparent
-                  opacity={0.9}
-                  depthWrite={false}
-                />
-              </mesh>
-            )}
-
-            {/* Glowing pulse ring ONLY when user explicitly picks this point */}
-            {isSelected && (
-              <group ref={pulseRef}>
-                <mesh position={[0, 0, 0.03]}>
-                  <ringGeometry args={[0.05, 0.085, 32]} />
-                  <meshBasicMaterial
-                    color={jointColor}
-                    side={THREE.DoubleSide}
-                    transparent
-                    opacity={0.9}
-                    depthWrite={false}
-                  />
-                </mesh>
-                <mesh>
-                  <sphereGeometry args={[0.02, 16, 16]} />
-                  <meshStandardMaterial
-                    color={jointColor}
-                    emissive={jointColor}
-                    emissiveIntensity={0.9}
-                    depthWrite={false}
-                  />
-                </mesh>
-              </group>
-            )}
-
-            {/* Interactive hover tooltip */}
-            {isHovered && (
-              <Html distanceFactor={3.8} position={[0, 0.16, 0]} center style={{ pointerEvents: 'none' }}>
-                <div
-                  style={{
-                    backgroundColor: 'rgba(6, 14, 28, 0.95)',
-                    color: '#22d3ee',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    border: '1.5px solid #00e5ff',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.8)',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    pointerEvents: 'none',
-                    whiteSpace: 'nowrap',
-                    letterSpacing: '0.02em',
-                  }}
-                >
-                  👉 Click to examine: {zone.name}
-                </div>
-              </Html>
-            )}
+            <mesh raycast={() => null}>
+              <sphereGeometry args={[0.02, 16, 16]} />
+              <meshStandardMaterial
+                color={jointColor}
+                emissive={jointColor}
+                emissiveIntensity={0.9}
+                depthWrite={false}
+              />
+            </mesh>
           </group>
         );
       })}
@@ -408,6 +342,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
           position={[activeZone.pos[0] + (activeZone.pos[0] < 0 ? -0.32 : 0.32), activeZone.pos[1], activeZone.pos[2] + 0.15]}
           center
           distanceFactor={3.8}
+          zIndexRange={[10, 0]}
           style={{ pointerEvents: 'none' }}
         >
           <div className="bg-slate-950/95 border border-cyan-500/60 rounded-xl p-3 shadow-2xl backdrop-blur-md text-white min-w-[200px]">
@@ -461,7 +396,7 @@ export const PatientSpecificMesh: React.FC<PatientSpecificMeshProps> = ({
                 <sphereGeometry args={[0.02, 16, 16]} />
                 <meshBasicMaterial color="#ef4444" depthWrite={false} />
               </mesh>
-              <Html distanceFactor={3.8} position={[0, 0.08, 0]} center style={{ pointerEvents: 'none' }}>
+              <Html distanceFactor={3.8} position={[0, 0.08, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
                 <div className="bg-red-950/90 border border-red-500/50 text-red-200 text-[10px] px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">
                   ● {finding.title}
                 </div>

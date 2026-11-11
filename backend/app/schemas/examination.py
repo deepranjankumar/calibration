@@ -133,7 +133,7 @@ class ClinicalFindingSchema(BaseModel):
     description: str
     severity: str # NORMAL, MILD, MODERATE, SEVERE, CRITICAL
     anatomical_site: Optional[str] = None
-    mesh_anchor: Optional[Dict[str, float]] = None
+    mesh_anchor: Optional[Dict[str, Any]] = None
     is_provisional: bool = True
     created_at: datetime
 
@@ -160,7 +160,9 @@ class ExaminationDetailResponse(BaseModel):
     patient_orientation: str
     patient_calibration: Optional[Dict[str, Any]] = None
     selected_point: Optional[Dict[str, Any]] = None
+    selected_points: Optional[List[Dict[str, Any]]] = None
     point_analysis: Optional[Dict[str, Any]] = None
+    pain_path_analysis: Optional[Dict[str, Any]] = None
     status: str
     protocol_name: str
     current_step_id: str

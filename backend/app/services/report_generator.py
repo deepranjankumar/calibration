@@ -108,13 +108,21 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
     )
 
     # (C) Full Spine Axial Kinetic Chain Strain (Neck down to Buttocks / Head-Loading Syndrome):
-    is_full_spine_axial = (
+    # Strictly applies ONLY if the anatomical site is actually spine and NOT anterior or limb structures
+    is_spine_region = any(kw in region_id for kw in ["SPINE", "LUMBAR", "CERVICAL", "PARASPINAL"]) and not any(kw in region_id for kw in ["CHEST", "ABDOMINAL", "SHIN", "KNEE", "THIGH", "WRIST", "ELBOW", "ARM", "LEG", "ANKLE"])
+    
+    is_full_spine_axial = is_spine_region and (
         any(kw in finding_texts for kw in [
-            "head load", "गठरी", "बोरी", "घड़ा", "neck to buttock", "neck to back", "गर्दन से कमर", "कूल्हे तक", "पूरा बदन", "kinetic chain", "axial", "रीढ़ में खिंचाव"
+            "head load", "गठरी", "बोरी", "घड़ा", "neck to buttock", "neck to back", "गर्दन से कमर", "कूल्हे तक", "पूरा बदन", "रीढ़ में खिंचाव"
         ]) or
-        (("CERVICAL" in region_id or "NECK" in region_id) and any(kw in finding_texts for kw in ["back", "buttock", "कमर", "पीठ", "जकड़न"])) or
-        (("THORACIC" in region_id or "LUMBAR" in region_id) and any(kw in finding_texts for kw in ["neck", "गर्दन", "कंधे", "गठरी"]))
+        (("CERVICAL" in region_id or "NECK" in region_id) and any(kw in finding_texts for kw in ["back", "buttock", "कमर", "पीठ", "जकड़न"]))
     )
+
+    # Check if tailored point or path analysis is attached to the examination
+    p_data = getattr(exam, "point_analysis", None)
+    if p_data and isinstance(p_data, dict):
+        if p_data.get("pattern_id") != "FULL_SPINE_AXIAL_STRAIN_PATH":
+            is_full_spine_axial = False
 
     # (D) Lumbar Spinal Canal Stenosis (Neurogenic Claudication):
     is_lumbar_stenosis = any(kw in finding_texts for kw in [
@@ -159,7 +167,14 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
     else:
         severity_grade = "Mild to Moderate"
 
-    if has_gout:
+    # Priority 1: If tailored 3D point or path analysis is attached, use its precise diagnosis
+    if p_data and isinstance(p_data, dict) and (p_data.get("differential_diagnosis") or p_data.get("pattern_title_en")):
+        tailored_diffs = p_data.get("differential_diagnosis") or p_data.get("clinical_decisions", {}).get("differential_diagnosis", [])
+        if tailored_diffs:
+            clinical_diagnosis = tailored_diffs[0]
+        else:
+            clinical_diagnosis = f"{side.title()} {p_data.get('pattern_title_hi') or p_data.get('pattern_title_en')}"
+    elif has_gout:
         clinical_diagnosis = f"{side.title()} {body_part_name} Acute Gouty Arthritis / गाउट (यूरिक एसिड जोड़ सूजन)"
     elif is_sciatica:
         clinical_diagnosis = f"{side.title()} L4-S1 Lumbar Disc Herniation with Sciatica / साइटिका (कमर से पैर तक नस दबने का तेज दर्द)"
@@ -393,7 +408,99 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
         )
 
     # 5. Targeted Evidence-Based Curative Rehabilitation Exercises (कसरत व व्यायाम)
-    if is_sciatica:
+    pattern_id = p_data.get("pattern_id", "") if (p_data and isinstance(p_data, dict)) else ""
+
+    if pattern_id == "ANTERIOR_LOWER_LIMB_EXTENSOR_CHAIN":
+        exercises = [
+            ExercisePrescription(
+                name="Tibialis Anterior Isometric & Eccentric Strengthening (पिंडली की आगे वाली हड्डी व नस की कसरत)",
+                target_area=f"{side.title()} Tibialis Anterior & Anterior Tibial Crest",
+                sets_reps="3 sets of 12 repetitions (5-second hold)",
+                frequency="Twice daily (सुबह व शाम)",
+                how_to_perform="कुर्सी पर बैठें या दीवार के सहारे खड़े हों। एड़ियों को जमीन पर रखते हुए दोनों पंजों को ऊपर छत की तरफ अधिकतम खींचें (Dorsiflexion)। 5 सेकंड रोकें जब तक पिंडली के आगे की नस खिंचे, फिर धीरे-धीरे 3 सेकंड में नीचे लाएं। शिन स्प्लिंट्स और चलने पर होने वाले दर्द में तुरंत राहत देती है।",
+                hold_duration_sec=5,
+                precautions="तेज झटका न दें; एड़ी को फर्श से न उठाएं।"
+            ),
+            ExercisePrescription(
+                name="Seated Active Terminal Knee Extension with VMO Focus (घुटने की कटोरी संरेखण व VMO कसरत)",
+                target_area=f"{side.title()} Vastus Medialis Oblique (VMO) & Patellofemoral Track",
+                sets_reps="3 sets of 10 repetitions",
+                frequency="Twice daily",
+                how_to_perform="कुर्सी पर सीधे बैठें। प्रभावित पैर को धीरे-धीरे पूरा सीधा करें जब तक घुटना 0° पर लॉक न हो जाए। घुटने की अंदरूनी जांघ (VMO) को कसें और पंजे को हल्का सा बाहर की तरफ घुमाएं। ऊपर 4 सेकंड रोकें, फिर धीरे से नीचे लाएं। घुटने की कटोरी को रगड़ खाने से रोकता है।",
+                hold_duration_sec=4,
+                precautions="घुटने को झटके से पीछे न पटकें।"
+            ),
+            ExercisePrescription(
+                name="Isometric Quadriceps Sets (जांघ मजबूत करने की कसरत - Quad Sets)",
+                target_area=f"{side.title()} Quadriceps Femoris (जांघ की मांसपेशी)",
+                sets_reps="3 sets of 10 repetitions",
+                frequency="Twice daily (Morning & Evening)",
+                how_to_perform="सख्त बिस्तर पर पैर सीधा करके बैठें। घुटने के पिछले हिस्से को बिस्तर की तरफ जोर से नीचे दबाएं, जिससे जांघ के ऊपर की मांसपेशी सख्त हो जाए। 5 सेकंड रोकें, फिर ढीला छोड़ें।",
+                hold_duration_sec=5,
+                precautions="सांस सामान्य रखें; अचानक झटका न दें।"
+            )
+        ]
+    elif pattern_id == "ANTERIOR_THORACOABDOMINAL_WALL_PATH" or (("CHEST" in region_id or "THORACIC" in region_id or "ABDOMEN" in region_id) and not is_spine_region):
+        exercises = [
+            ExercisePrescription(
+                name="Pectoralis Doorway Stretch & Anterior Rib Cage Expansion (सीने व पसलियों का फैलाव)",
+                target_area="Costochondral Junctions, Pectoralis Major & Intercostal Muscles",
+                sets_reps="3 sets of 20-second holds",
+                frequency="3 times daily",
+                how_to_perform="दरवाजे के चौखट में खड़े हों। कोहनियों को 90° मोड़कर चौखट पर रखें। एक पैर आगे बढ़ाएं और छाती को धीरे-धीरे आगे निकालें जब तक सीने की पसलियों में हल्का व आरामदेह फैलाव महसूस न हो। 20 सेकंड रोकें और गहरी सांस लें।",
+                hold_duration_sec=20,
+                precautions="कमर को ज्यादा पीछे न झुकाएं; सीने की पसलियों को फैलने दें।"
+            ),
+            ExercisePrescription(
+                name="Diaphragmatic Deep Breathing with Costal Expansion (पसलियों का लचीलापन व गहरी सांस)",
+                target_area="Intercostal Muscles, Diaphragm & Thoracic Wall",
+                sets_reps="10 slow deep breathing cycles",
+                frequency="Morning, Midday & Night (दिन में 3 बार)",
+                how_to_perform="सीधे बैठें, दोनों हाथ पसलियों के किनारों पर रखें। नाक से 4 सेकंड तक गहरी सांस लें ताकि पसलियां दोनों तरफ बाहर फैलें। 2 सेकंड रोकें, फिर मुंह से धीरे-धीरे सांस छोड़ें। पसलियों की सूजन व जकड़न शांत करता है।",
+                hold_duration_sec=2,
+                precautions="चक्कर आने पर सामान्य सांस लें।"
+            ),
+            ExercisePrescription(
+                name="Thoracic Towel Roll Extension (ऊपरी पीठ व पसलियों का डीकंप्रेशन)",
+                target_area="Thoracic Spine & Anterior Rib Cage",
+                sets_reps="2 sets of 2 minutes gentle relaxation",
+                frequency="Twice daily",
+                how_to_perform="एक तौलिए को गोल मोड़कर फर्श पर रखें। उसके ऊपर इस तरह लेटें कि तौलिया सीने के ठीक पीछे पीठ के बीच में आए। दोनों हाथ सिर के पीछे रखें और छाती को आराम से खुलने दें।",
+                hold_duration_sec=30,
+                precautions="तेज दर्द होने पर तौलिए की मोटाई कम करें।"
+            )
+        ]
+    elif "SHIN" in region_id or "TIBIA" in region_id or "MTSS" in pattern_id or "SHIN" in pattern_id:
+        exercises = [
+            ExercisePrescription(
+                name="Tibialis Anterior Isometric & Eccentric Dorsiflexion (पिंडली की आगे वाली हड्डी व टिबियालिस एंटीरियर कसरत)",
+                target_area=f"{side.title()} Tibialis Anterior & Anterior Tibial Crest",
+                sets_reps="3 sets of 12 repetitions (5-second hold)",
+                frequency="Twice daily (सुबह व शाम)",
+                how_to_perform="कुर्सी पर बैठें या दीवार के सहारे खड़े हों। एड़ियों को जमीन पर टिकाए रखते हुए पंजों को ऊपर छत की तरफ अधिकतम खींचें। ऊपर 5 सेकंड रोकें जब तक पिंडली के आगे की मांसपेशी में कड़ापन महसूस हो, फिर धीरे से 3 सेकंड में नीचे लाएं। शिन स्प्लिंट्स के दर्द को जड़ से खत्म करता है।",
+                hold_duration_sec=5,
+                precautions="एड़ी फर्श से न उठाएं; गति धीमी व नियंत्रित रखें।"
+            ),
+            ExercisePrescription(
+                name="Anterior Compartment Shin Stretch (पिंडली के आगे का खिंचाव)",
+                target_area=f"{side.title()} Extensor Digitorum Longus & Anterior Compartment",
+                sets_reps="3 sets of 25-second holds",
+                frequency="Twice daily",
+                how_to_perform="कुर्सी पर बैठकर पैर को पीछे मोड़ें और पंजों के ऊपरी हिस्से (नाखूनों की तरफ) को फर्श पर हल्का दबाएं जिससे पिंडली के आगे सुखद खिंचाव बने। 25 सेकंड रोकें।",
+                hold_duration_sec=25,
+                precautions="उंगलियों पर जरूरत से ज्यादा जोर न दें।"
+            ),
+            ExercisePrescription(
+                name="Soleus & Deep Calf Wall Lean Stretch (निचली पिंडली व अकिलीज नस का खिंचाव)",
+                target_area=f"{side.title()} Deep Soleus Muscle & Achilles Tendon (शिन पर तनाव घटाने हेतु)",
+                sets_reps="3 sets of 30-second holds",
+                frequency="Twice daily",
+                how_to_perform="दीवार के सहारे खड़े होकर प्रभावित पैर को पीछे रखें। पीछे वाले पैर के घुटने को हल्का सा मोड़ें (ताकि गहरी सोलियस मांसपेशी पर खिंचाव आए) और एड़ी को जमीन पर मजबूती से दबाएं। 30 सेकंड रोकें।",
+                hold_duration_sec=30,
+                precautions="एड़ी जमीन से न उठे।"
+            )
+        ]
+    elif is_sciatica:
         exercises = [
             ExercisePrescription(
                 name="Sciatic Nerve Flossing / Neural Mobilization (सायटिक नर्व ग्लाइडिंग कसरत)",
@@ -513,7 +620,7 @@ def build_prescription_for_exam(exam: Examination) -> FinalPrescription:
                 precautions="कंधों को ऊपर कानों की तरफ न उचकाएं।"
             )
         ]
-    elif is_calf_cramps or ("CALF" in region_id or "ANKLE" in region_id or "SHIN" in region_id):
+    elif is_calf_cramps or ("CALF" in region_id or "ANKLE" in region_id):
         exercises = [
             ExercisePrescription(
                 name="Gastrocnemius & Soleus Towel Stretch (पिंडली व नस का खिंचाव)",

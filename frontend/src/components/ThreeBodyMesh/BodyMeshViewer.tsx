@@ -5,6 +5,7 @@ import type { OrbitControls as OrbitControlsType } from 'three-stdlib';
 import * as THREE from 'three';
 import { DenseHumanMesh } from './DenseHumanMesh';
 import { PatientSpecificMesh } from './PatientSpecificMesh';
+import { KinematicMotionSkeleton } from './KinematicMotionSkeleton';
 import type {
   BiomechanicalMeasurement,
   ClinicalFinding,
@@ -189,10 +190,10 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
     setView(DEFAULT_CAM_POS[0], DEFAULT_CAM_POS[1], DEFAULT_CAM_POS[2], BODY_CENTER);
   };
 
-  const focusOnSelectedRegion = () => {
+  const focusOnSelectedRegion = (comfortDistance: number = 2.6) => {
     if (!controlsRef.current) return;
     if (activePoint) {
-      setView(activePoint.x, activePoint.y, activePoint.z + 1.15, [activePoint.x, activePoint.y, activePoint.z]);
+      setView(activePoint.x * 0.3, activePoint.y * 0.4, comfortDistance, [activePoint.x * 0.2, activePoint.y * 0.3, 0]);
       return;
     }
     if (!selectedRegion) {
@@ -202,53 +203,55 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
     const isRight = affectedSide === 'RIGHT' || selectedRegion.includes('RIGHT');
     const xMult = isRight ? -1 : 1;
 
-    let targetJoint: [number, number, number] = [xMult * 0.11, -0.345, 0.04];
-    let camPos: [number, number, number] = [xMult * 0.11, -0.345, 1.15];
+    let targetJoint: [number, number, number] = [xMult * 0.08, -0.25, 0.0];
+    let camPos: [number, number, number] = [xMult * 0.08, -0.25, comfortDistance];
 
     const reg = selectedRegion.toUpperCase();
     if (reg.includes('SHOULDER')) {
-      targetJoint = [xMult * 0.19, 0.64, 0.01];
-      camPos = [xMult * 0.19, 0.64, 1.1];
+      targetJoint = [xMult * 0.12, 0.45, 0.0];
+      camPos = [xMult * 0.12, 0.45, comfortDistance];
     } else if (reg.includes('ELBOW')) {
-      targetJoint = [xMult * 0.29, 0.38, -0.01];
-      camPos = [xMult * 0.29, 0.38, 1.05];
+      targetJoint = [xMult * 0.18, 0.25, 0.0];
+      camPos = [xMult * 0.18, 0.25, comfortDistance];
     } else if (reg.includes('WRIST')) {
-      targetJoint = [xMult * 0.40, 0.11, -0.02];
-      camPos = [xMult * 0.40, 0.11, 0.95];
-    } else if (reg.includes('HIP')) {
-      targetJoint = [xMult * 0.095, 0.085, 0.02];
-      camPos = [xMult * 0.095, 0.085, 1.15];
-    } else if (reg.includes('ANKLE')) {
-      targetJoint = [xMult * 0.095, -0.81, 0.01];
-      camPos = [xMult * 0.095, -0.81, 1.05];
+      targetJoint = [xMult * 0.22, 0.10, 0.0];
+      camPos = [xMult * 0.22, 0.10, comfortDistance];
+    } else if (reg.includes('HIP') || reg.includes('THIGH')) {
+      targetJoint = [xMult * 0.08, -0.15, 0.0];
+      camPos = [xMult * 0.08, -0.15, comfortDistance];
+    } else if (reg.includes('KNEE') || reg.includes('SHIN')) {
+      targetJoint = [xMult * 0.08, -0.40, 0.0];
+      camPos = [xMult * 0.08, -0.40, comfortDistance];
+    } else if (reg.includes('ANKLE') || reg.includes('FOOT')) {
+      targetJoint = [xMult * 0.08, -0.65, 0.0];
+      camPos = [xMult * 0.08, -0.65, comfortDistance];
     } else if (reg.includes('SPINE') || reg.includes('LUMBAR')) {
-      targetJoint = [0, 0.29, -0.02];
-      camPos = [0, 0.29, 1.2];
-    } else if (reg.includes('CERVICAL')) {
-      targetJoint = [0, 0.69, 0.02];
-      camPos = [0, 0.69, 1.1];
-    }
-
-    // If patient-specific calibration is active, use the patient's exact 3D joint coordinate
-    if (patientCalibration?.key_joint_positions) {
-      const calibPos = patientCalibration.key_joint_positions[selectedRegion]
-        || patientCalibration.key_joint_positions[selectedRegion.toUpperCase()];
-      if (calibPos) {
-        targetJoint = calibPos;
-        camPos = [calibPos[0], calibPos[1], calibPos[2] + 1.1];
-      }
+      targetJoint = [0, 0.18, -0.02];
+      camPos = [0, 0.18, comfortDistance];
+    } else if (reg.includes('CERVICAL') || reg.includes('NECK')) {
+      targetJoint = [0, 0.50, 0.0];
+      camPos = [0, 0.50, comfortDistance];
     }
 
     setView(camPos[0], camPos[1], camPos[2], targetJoint);
   };
 
-  // Automatically frame and zoom onto the detected or selected body part mesh
+  // Automatically ensure full body view when kinematic motion replay or measurements are active
   useEffect(() => {
-    if (selectedRegion) {
+    if (measurements && measurements.length > 0) {
+      setFullBodyView();
+    }
+  }, [measurements.length]);
+
+  // Initial balanced framing
+  useEffect(() => {
+    if (selectedRegion && (!measurements || measurements.length === 0)) {
       const timer = setTimeout(() => {
-        focusOnSelectedRegion();
+        focusOnSelectedRegion(2.7);
       }, 150);
       return () => clearTimeout(timer);
+    } else if (!selectedRegion) {
+      setFullBodyView();
     }
   }, [selectedRegion, patientCalibration?.calibrated_mesh_url]);
 
@@ -259,7 +262,25 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
       {/* Top Header Controls & Camera Presets */}
       <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none gap-2">
         {/* Anatomical Status & Guidance Badge */}
-        {activePoint ? (
+        {selectedPoints && selectedPoints.length > 1 ? (
+          <div className="flex items-center gap-2 bg-slate-900/95 border border-amber-500/80 px-3 py-1.5 rounded-xl shadow-xl backdrop-blur-md pointer-events-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-xs font-bold text-white">
+              {painPathAnalysis?.pattern_title_en || (selectionMode === 'LINE' ? 'Radiation Line' : 'Multi-Point Areas')}
+            </span>
+            <span className="text-[10px] text-amber-400 font-mono bg-amber-950 px-1.5 py-0.5 rounded border border-amber-800">
+              {selectedPoints.length} Points
+            </span>
+            <button
+              type="button"
+              onClick={handleClearPin}
+              className="p-0.5 text-slate-400 hover:text-red-400 rounded transition-colors ml-1 cursor-pointer"
+              title="Clear Points"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : activePoint ? (
           <div className="flex items-center gap-2 bg-slate-900/95 border border-cyan-500/80 px-3 py-1.5 rounded-xl shadow-xl backdrop-blur-md pointer-events-auto animate-in fade-in zoom-in-95 duration-150">
             <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
             <span className="text-xs font-bold text-white">
@@ -343,15 +364,15 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
             <button
               type="button"
               onClick={() => onChangeSelectionMode?.('POINT')}
-              title="Single / Multi-Point Tender Zone Mode"
+              title="Multi-Point Mode: Click single or multiple discrete tender spots"
               className={`text-xs px-2.5 py-1 rounded-lg transition-all font-bold flex items-center gap-1.5 cursor-pointer ${
                 selectionMode === 'POINT'
-                  ? 'bg-cyan-600 text-white shadow-md'
+                  ? 'bg-cyan-600 text-white shadow-md border border-cyan-400'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
               <Target className="w-3.5 h-3.5 text-cyan-300" />
-              <span>Point</span>
+              <span>Multi-Point</span>
             </button>
             <button
               type="button"
@@ -359,7 +380,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
               title="Continuous Pain Radiation Trajectory / Nerve Line (e.g. Sciatica, Spine)"
               className={`text-xs px-2.5 py-1 rounded-lg transition-all font-bold flex items-center gap-1.5 cursor-pointer ${
                 selectionMode === 'LINE'
-                  ? 'bg-amber-600 text-white shadow-md'
+                  ? 'bg-amber-600 text-white shadow-md border border-amber-400'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
@@ -441,7 +462,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
 
           {/* Framing & Zoom Actions */}
           <button
-            onClick={focusOnSelectedRegion}
+            onClick={() => focusOnSelectedRegion()}
             title={`Focus on ${regionDisplayName || 'Body'}`}
             className="text-xs px-2 py-1 text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/60 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
           >
@@ -450,11 +471,11 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
           </button>
           <button
             onClick={setFullBodyView}
-            title="Fit Full Body"
-            className="text-xs px-2 py-1 text-slate-300 hover:text-white hover:bg-slate-800/80 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+            title="Reset to Full Body View (पूरा शरीर देखें)"
+            className="text-xs px-2.5 py-1 text-white bg-cyan-900/80 hover:bg-cyan-800 border border-cyan-500/70 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm font-semibold"
           >
-            <Maximize2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Full Body</span>
+            <Maximize2 className="w-3.5 h-3.5 text-cyan-300" />
+            <span>Full Body</span>
           </button>
 
           <div className="w-px h-4 bg-slate-700 mx-1" />
@@ -506,6 +527,15 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
             fadeStrength={1.5}
           />
 
+          {/* Dynamic Patient Kinematic Motion Skeleton (Real-time movement from video) */}
+          {activeFrameData && (
+            <KinematicMotionSkeleton
+              activeFrameData={activeFrameData}
+              selectedRegion={selectedRegion}
+              affectedSide={affectedSide}
+            />
+          )}
+
           {/* If patient photo calibration is active, render PatientSpecificMesh */}
           <React.Suspense fallback={null}>
             {patientCalibration ? (
@@ -519,6 +549,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
                 measurements={measurements}
                 findings={findings}
                 isExamActive={isExamActive}
+                isMotionActive={Boolean(activeFrameData && activeFrameData.frame_landmarks_3d && activeFrameData.frame_landmarks_3d.length > 0)}
                 selectedPoint={activePoint}
                 selectedPoints={selectedPoints}
                 selectionMode={selectionMode}
@@ -532,6 +563,7 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
                 measurements={measurements}
                 findings={findings}
                 isExamActive={isExamActive}
+                isMotionActive={Boolean(activeFrameData && activeFrameData.frame_landmarks_3d && activeFrameData.frame_landmarks_3d.length > 0)}
                 selectedPoint={activePoint}
                 selectedPoints={selectedPoints}
                 selectionMode={selectionMode}

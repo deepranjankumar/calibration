@@ -127,31 +127,32 @@ export function parsePatientSpokenIntent(
 
   // 1. QUESTION_BOOLEAN
   if (step.action_type === 'QUESTION_BOOLEAN') {
-    const positiveKeywords = [
-      'हाँ', 'हां', 'हा', 'जी हाँ', 'जी हां', 'दर्द है', 'चोट लगी थी', 'चोट लगी',
-      'गिरा था', 'गिर गया', 'सुन्न है', 'लटक रहा है', 'अटकता है', 'कमजोरी है',
-      'yes', 'yeah', 'yep', 'it hurts', 'pain', 'severe', 'injured', 'fell', 'numb'
-    ];
     const negativeKeywords = [
       'नहीं', 'नही', 'ना', 'दर्द नहीं है', 'कोई चोट नहीं', 'चल सकता हूँ', 'चल सकता हु',
-      'ठीक है', 'कोई दिक्कत नहीं', 'कुछ नहीं', 'आराम है',
-      'no', 'nope', 'nah', 'no pain', 'i can walk', 'fine', 'normal', 'nothing'
+      'ठीक है', 'कोई दिक्कत नहीं', 'कुछ नहीं', 'आराम है', 'ऐसा नहीं है', 'ऐसा नहीं',
+      'no', 'nope', 'nah', 'no pain', 'i can walk', 'fine', 'normal', 'nothing', 'negative'
+    ];
+    const positiveKeywords = [
+      'हाँ', 'हां', 'हा', 'जी हाँ', 'जी हां', 'हाँ ऐसा है', 'हाँ होता है',
+      'yes', 'yeah', 'yep', 'positive', 'affirmative', 'true'
     ];
 
-    for (const pos of positiveKeywords) {
-      if (text.includes(pos)) {
-        return {
-          detectedBoolean: true,
-          confidenceReason: `पहचाना गया: "${pos}" (Yes / सकारात्मक)`
-        };
-      }
-    }
-
+    // Priority 1: Check negative responses first so "दर्द नहीं है" or "नहीं ऐसा नहीं है" is never misclassified
     for (const neg of negativeKeywords) {
       if (text.includes(neg)) {
         return {
           detectedBoolean: false,
           confidenceReason: `पहचाना गया: "${neg}" (No / नकारात्मक)`
+        };
+      }
+    }
+
+    // Priority 2: Check explicit positive affirmative responses
+    for (const pos of positiveKeywords) {
+      if (text.includes(pos)) {
+        return {
+          detectedBoolean: true,
+          confidenceReason: `पहचाना गया: "${pos}" (Yes / सकारात्मक)`
         };
       }
     }

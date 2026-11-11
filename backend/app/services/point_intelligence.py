@@ -768,6 +768,14 @@ class AnatomicalPointAnalyzer:
 
             tests = [
                 {
+                    "test_id": "TEST_HIP_ACTIVE_ABDUCTION_STANCE",
+                    "title": "Active Hip Abduction & Single-Leg Stance Kinematics",
+                    "instruction_en": "Stand 2 meters in front of the camera. Lift your affected leg sideways to 30°-45° without leaning your torso. MediaPipe measures hip abduction angle and pelvic stability.",
+                    "instruction_hi": "कैमरे के सामने खड़े हों। बिना झुके दर्द वाले पैर को साइड में 30 से 45 डिग्री बाहर की तरफ उठाएं।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "HIP"
+                },
+                {
                     "test_id": "TEST_HIP_FABER",
                     "title": "FABER (Patrick's) Test (Flexion, Abduction, External Rotation)",
                     "instruction_en": "Place foot of symptomatic leg on opposite knee ('figure 4'). Gently press knee downward. Pain indicates intra-articular hip pathology or SI joint.",
@@ -839,6 +847,13 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "Diagnostic shoulder ultrasound or MRI if suspected full-thickness rotator cuff tear.",
                 "recovery_timeline": "Subacromial Impingement / Tendinopathy: 4-8 weeks."
             }
+            differentials = [
+                f"{side_str} Subacromial Impingement & Rotator Cuff Tendinopathy (कंधे की नस में रगड़ व सूजन)",
+                f"{side_str} Supraspinatus Tendon Partial Tear / Calcific Tendinitis (कंधे के रोटेटर कफ में खिंचाव)",
+                f"{side_str} Biceps Long Head Tendinopathy (बाजू के आगे वाली नस का दर्द)",
+                f"{side_str} Adhesive Capsulitis / Frozen Shoulder (कंधा जाम होना)"
+            ]
+            pearl = "Painful arc between 60° and 120° of active abduction with normal passive glenohumeral range of motion distinguishes subacromial impingement from adhesive capsulitis (frozen shoulder)."
         elif 0.28 < y <= 0.48: # Arm & Elbow (Biceps / Triceps / Epicondyles)
             is_elbow = y < 0.38
             sub = "Elbow Joint & Epicondylar Complex" if is_elbow else "Brachium (Biceps / Triceps Muscle Belly)"
@@ -886,6 +901,13 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "Physical therapy; consider PRP injection or shockwave therapy for chronic epicondylopathy.",
                 "recovery_timeline": "Lateral Epicondylalgia: 4-12 weeks."
             }
+            differentials = [
+                f"{side_str} Lateral Epicondylalgia / Tennis Elbow (कोहनी के बाहरी जोड़ का दर्द)",
+                f"{side_str} Medial Epicondylalgia / Golfer's Elbow (कोहनी के अंदरूनी जोड़ का दर्द)",
+                f"{side_str} Olecranon Bursitis (कोहनी के पीछे पानी भरना व सूजन)",
+                f"{side_str} Cubital Tunnel Syndrome / Ulnar Nerve Compression"
+            ]
+            pearl = "Point tenderness 2-5mm distal to the lateral epicondyle exacerbated by resisted wrist extension with the elbow in full extension confirms tennis elbow."
         else: # Forearm, Wrist & Hand (y <= 0.28)
             region_id = f"{side}_FOREARM_WRIST"
             display_name = f"{side_str} Forearm, Wrist & Hand"
@@ -931,8 +953,15 @@ class AnatomicalPointAnalyzer:
                 "phase3_medical": "Nerve conduction study (EMG/NCS) if persistent numbness or thenar atrophy; carpal tunnel release consultation if severe.",
                 "recovery_timeline": "Mild Carpal Tunnel / Wrist Strain: 4-6 weeks with splinting."
             }
+            differentials = [
+                f"{side_str} Carpal Tunnel Syndrome / Median Nerve Entrapment (कलाई की नस दबने से उंगलियों में झनझनाहट)",
+                f"{side_str} De Quervain's Tenosynovitis (अंगूठे की जड़ में दर्द)",
+                f"{side_str} Wrist Extensor / Flexor Tendinopathy",
+                f"{side_str} First Carpometacarpal (CMC) Osteoarthritis"
+            ]
+            pearl = "Numbness restricted to the palmar aspect of the thumb, index, and middle fingers with sparing of the thenar eminence confirms carpal tunnel syndrome, as the palmar cutaneous branch passes superficial to the flexor retinaculum."
 
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
 
     @staticmethod
     def _classify_knee(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
@@ -973,7 +1002,14 @@ class AnatomicalPointAnalyzer:
             "phase3_medical": "Knee X-ray if Ottawa criteria met; MRI if persistent mechanical locking (meniscal tear).",
             "recovery_timeline": "Patellofemoral Pain / Mild Sprain: 3-6 weeks; Meniscal Tear: 6-12 weeks."
         }
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+        differentials = [
+            f"{side_str} Medial/Lateral Meniscal Derangement (घुटने की गद्दी में खिंचाव या दरार)",
+            f"{side_str} Patellofemoral Pain Syndrome / Chondromalacia (घुटने की कटोरी का घिसाव)",
+            f"{side_str} Knee Osteoarthritis / Degenerative Arthrosis (घुटने का गैप कम होना व घिसाव)",
+            f"{side_str} Anserine Bursitis / Pes Anserinus Tendinopathy (घुटने के अंदरूनी जोड़ की सूजन)"
+        ]
+        pearl = "Joint line tenderness combined with mechanical clicking or true locking has 85% sensitivity for meniscal tears, while pain during prolonged sitting or stair climbing indicates patellofemoral tracking syndrome."
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
 
     @staticmethod
     def _classify_ankle_foot(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
@@ -1014,7 +1050,14 @@ class AnatomicalPointAnalyzer:
             "phase3_medical": "Ankle/Foot X-ray if Ottawa criteria positive. Orthopedic referral for Grade III ligamentous disruption.",
             "recovery_timeline": "Grade 1 Sprain: 1-2 weeks; Grade 2: 3-6 weeks; Plantar Fasciitis: 6-12 weeks."
         }
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+        differentials = [
+            f"{side_str} Inversion Ankle Sprain (ATFL / CFL Ligament Strain - टखने का मुड़ना व मोच)",
+            f"{side_str} Plantar Fasciitis / Calcaneal Spur (एड़ी के नीचे सुबह का तेज दर्द)",
+            f"{side_str} Achilles Tendinopathy (एड़ी के पीछे नस में सूजन)",
+            f"{side_str} Posterior Tibial Tendon Dysfunction (पंजे के अंदरूनी हिस्से में दर्द)"
+        ]
+        pearl = "Sharp heel pain with the first steps in the morning that eases after walking indicates plantar fasciitis. Tenderness at the posterior malleolar tip warrants Ottawa ankle radiography."
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
 
     @staticmethod
     def _classify_neck_cervical(point, normal, x, y, z, nx, ny, nz, side, side_str, aspect, aspect_str) -> Dict[str, Any]:
@@ -1103,7 +1146,14 @@ class AnatomicalPointAnalyzer:
             "phase3_medical": "Dental splint for nocturnal bruxism / TMJ; neurology evaluation for migraine prophylaxis.",
             "recovery_timeline": "Tension-type / Cervicogenic: 1-2 weeks with postural intervention."
         }
-        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx)
+        differentials = [
+            "Tension-Type Headache & Cervicogenic Cephalea (तनाव व गर्दन की अकड़न से सिरदर्द)",
+            "Temporomandibular Joint (TMJ) Dysfunction (जबड़े के जोड़ में चटकन व दर्द)",
+            "Occipital Neuralgia / Great Occipital Nerve Entrapment (सिर के पीछे नस का खिंचाव)",
+            "Migraine without Aura"
+        ]
+        pearl = "Tenderness over the greater occipital nerve exit combined with neck stiffness indicates cervicogenic headache. TMJ clicking during jaw opening points to articular disc displacement."
+        return AnatomicalPointAnalyzer._build_profile(point, normal, side, aspect, region_id, display_name, muscle, nerve, tissue, action, rf_en, rf_hi, rf_cond, dq, tests, rx, differentials, pearl)
 
     # --- PROFILE COMPILER ---
 
@@ -1138,27 +1188,37 @@ class AnatomicalPointAnalyzer:
             }
         }
 
-    @staticmethod
-    def generate_protocol_steps_for_point(point_analysis: Dict[str, Any]) -> List[ProtocolStepDef]:
+    @classmethod
+    def generate_protocol_steps_for_point(cls, point_analysis: Dict[str, Any]) -> List[ProtocolStepDef]:
         """
         Dynamically synthesizes an end-to-end clinical examination protocol
         tailored strictly to the selected 3D point.
         """
-        decisions = point_analysis["clinical_decisions"]
-        rf = decisions["red_flags"]
+        if not point_analysis:
+            return get_protocol_for_region("RIGHT_KNEE")
+
+        # If this is a multi-point or radiation path analysis dictionary, delegate to path generator
+        if "pattern_title_en" in point_analysis or "path_summary_en" in point_analysis or "trajectory_points" in point_analysis:
+            return cls.generate_protocol_steps_for_path(point_analysis)
+
+        decisions = point_analysis.get("clinical_decisions")
+        if not decisions:
+            return get_protocol_for_region(point_analysis.get("region_id", "RIGHT_KNEE"))
+
+        rf = decisions.get("red_flags", {})
         rf_step = ProtocolStepDef(
-            step_id=f"RED_FLAG_{point_analysis['region_id']}",
+            step_id=f"RED_FLAG_{point_analysis.get('region_id', 'POINT')}",
             phase="RED_FLAGS",
-            title=f"{point_analysis['display_name']} - Red Flag Safety Screen",
-            operator_instruction=f"Screen for emergency conditions ({rf['condition']}). If patient affirms, immediate clinical escalation is mandated.",
-            patient_question=rf["question_en"],
-            patient_question_hi=rf["question_hi"],
+            title=f"{point_analysis.get('display_name', 'Focal Point')} - Red Flag Safety Screen",
+            operator_instruction=f"Screen for emergency conditions ({rf.get('condition', 'Emergency Red Flags')}). If patient affirms, immediate clinical escalation is mandated.",
+            patient_question=rf.get("question_en", "Are you experiencing severe progressive numbness, weakness, or unexplained fever?"),
+            patient_question_hi=rf.get("question_hi", "क्या आपको अचानक सुन्नपन, कमजोरी या तेज बुखार महसूस हो रहा है?"),
             action_type="QUESTION_BOOLEAN",
-            input_config={"guidance": f"Rule out {rf['condition']}."},
+            input_config={"guidance": f"Rule out {rf.get('condition', 'Red flags')}."},
             is_red_flag=True,
             abort_on_true=True,
-            red_flag_alert_reason=rf["alert_reason"],
-            urgency_level=rf["urgency"]
+            red_flag_alert_reason=rf.get("alert_reason", "Emergency clinical red flag suspected"),
+            urgency_level=rf.get("urgency", "EMERGENCY_IMMEDIATE")
         )
 
         steps: List[ProtocolStepDef] = [rf_step]
@@ -1256,6 +1316,7 @@ class AnatomicalPointAnalyzer:
         if not points:
             return {}
 
+        side_str = affected_side.title() if affected_side and affected_side != "BILATERAL" else "Bilateral"
         points_detail = []
         regions_touched = set()
         y_coords = []
@@ -1275,15 +1336,46 @@ class AnatomicalPointAnalyzer:
         y_span = max_y - min_y
         is_line = (path_type == "LINE") or (len(points) >= 2 and y_span > 0.3)
 
-        has_lumbar = any("LUMBAR" in r or "SPINE" in r for r in regions_touched) or any(0.15 <= y <= 0.4 for y in y_coords)
-        has_cervical = any("CERVICAL" in r or "NECK" in r for r in regions_touched) or any(y >= 0.55 for y in y_coords)
-        has_gluteal = any("GLUTEAL" in r or "PELVIS" in r or "HIP" in r for r in regions_touched) or any(-0.1 <= y <= 0.15 for y in y_coords)
-        has_thigh = any("THIGH" in r for r in regions_touched) or any(-0.45 <= y <= -0.15 for y in y_coords)
-        has_leg = any("LEG" in r or "CALF" in r or "ANKLE" in r or "FOOT" in r for r in regions_touched) or any(y <= -0.45 for y in y_coords)
-        has_arm = any("ARM" in r or "SHOULDER" in r or "ELBOW" in r for r in regions_touched) or any(abs(x) > 0.25 and y > 0.1 for x, y in zip(x_coords, y_coords))
+        # 1. Orientation Detection (Anterior vs Posterior vs Extremity)
+        anterior_count = sum(1 for p in points_detail if p.get("aspect") == "ANTERIOR" or p.get("point", {}).get("z", 0.0) >= -0.01)
+        posterior_count = sum(1 for p in points_detail if p.get("aspect") == "POSTERIOR" or p.get("point", {}).get("z", 0.0) < -0.01)
+        is_primarily_anterior = anterior_count >= posterior_count
 
-        # 1. Sciatica Pattern
-        if (has_lumbar or has_gluteal) and (has_thigh or has_leg):
+        # Posterior spine markers must be strictly posterior (z <= 0.02 and aspect == POSTERIOR)
+        has_post_lumbar = any(
+            ("LUMBAR" in p.get("region_id", "") or "PARASPINAL" in p.get("region_id", "")) and
+            (p.get("aspect") == "POSTERIOR" or p.get("point", {}).get("z", 0.0) < 0.0)
+            for p in points_detail
+        )
+        has_post_cervical = any(
+            ("CERVICAL" in p.get("region_id", "") or "NECK" in p.get("region_id", "")) and
+            (p.get("aspect") == "POSTERIOR" or p.get("point", {}).get("z", 0.0) < 0.0)
+            for p in points_detail
+        )
+        has_post_gluteal = any(
+            ("GLUTEAL" in p.get("region_id", "") or "PIRIFORMIS" in p.get("region_id", "") or "SACROILIAC" in p.get("region_id", "")) and
+            (p.get("aspect") == "POSTERIOR" or p.get("point", {}).get("z", 0.0) < 0.0)
+            for p in points_detail
+        )
+        has_post_leg = any(
+            ("HAMSTRING" in p.get("region_id", "") or "CALF" in p.get("region_id", "") or "ACHILLES" in p.get("region_id", "")) and
+            (p.get("aspect") == "POSTERIOR" or p.get("point", {}).get("z", 0.0) < 0.0)
+            for p in points_detail
+        )
+
+        # Anterior Kinetic Chains
+        has_ant_chest = any("CHEST" in p.get("region_id", "") or ("THORACIC" in p.get("region_id", "") and p.get("aspect") == "ANTERIOR") for p in points_detail)
+        has_ant_abdomen = any("ABDOMINAL" in p.get("region_id", "") for p in points_detail)
+        has_ant_thigh = any("THIGH" in p.get("region_id", "") and (p.get("aspect") == "ANTERIOR" or p.get("point", {}).get("z", 0.0) >= 0) for p in points_detail)
+        has_ant_knee = any("KNEE" in p.get("region_id", "") for p in points_detail)
+        has_ant_shin = any("SHIN" in p.get("region_id", "") or ("LEG" in p.get("region_id", "") and p.get("aspect") == "ANTERIOR") for p in points_detail)
+        has_ant_shoulder = any("SHOULDER" in p.get("region_id", "") for p in points_detail)
+        has_ant_arm = any("ELBOW" in p.get("region_id", "") or "WRIST" in p.get("region_id", "") or "ARM" in p.get("region_id", "") for p in points_detail)
+
+        # --- A. POSTERIOR SYNDROMES (Spine, Sciatica, Neck Radiation) ---
+
+        # 1. Posterior Sciatica Pattern (Lumbar/Gluteal -> Posterior Thigh/Calf)
+        if (not is_primarily_anterior) and (has_post_lumbar or has_post_gluteal) and has_post_leg:
             pattern_id = "SCIATICA_L4_S1_RADICULAR_PATH"
             pattern_title_en = "Sciatic Nerve Radiation Path (L4-S1 Lumbar Disc Radiculopathy)"
             pattern_title_hi = "सायटिका - कमर से पैर तक नस दबने का रास्ता (L4-S1 डिस्क दबाव)"
@@ -1354,8 +1446,8 @@ class AnatomicalPointAnalyzer:
             ]
             pearl = "Straight Leg Raise (Lasegue's) positive between 30°-70° confirms nerve root traction from a disc herniation. McKenzie prone press-ups push the disc anteriorly away from the nerve root to centralize pain out of the leg."
 
-        # 2. Full Spine Axial Strain Pattern
-        elif has_cervical and (has_lumbar or has_gluteal):
+        # 2. Posterior Full Spine Axial Strain Pattern (Strictly Posterior Spine: Neck -> Thoracic -> Lumbar)
+        elif (not is_primarily_anterior) and has_post_cervical and (has_post_lumbar or has_post_gluteal):
             pattern_id = "FULL_SPINE_AXIAL_STRAIN_PATH"
             pattern_title_en = "Full Spine Axial Strain & Head-Loading Syndrome"
             pattern_title_hi = "गर्दन से कमर और कूल्हे तक रीढ़ का खिंचाव (बोझा ढोने व गलत मुद्रा का दर्द)"
@@ -1426,8 +1518,8 @@ class AnatomicalPointAnalyzer:
             ]
             pearl = "In manual laborers and agricultural workers, simultaneous neck and lumbar pain without lower leg neurological deficits is typically axial muscle exhaustion. Treatment focuses on spinal decompression, magnesium/calcium nutrition, and thiocolchicoside muscle relaxation."
 
-        # 3. Cervical Brachial Radiation Pattern
-        elif has_cervical and has_arm:
+        # 3. Posterior Cervical Brachial Radiation Pattern
+        elif (not is_primarily_anterior) and has_post_cervical and any("ARM" in p.get("region_id", "") or "SHOULDER" in p.get("region_id", "") for p in points_detail):
             pattern_id = "CERVICAL_BRACHIAL_RADIATION_PATH"
             pattern_title_en = "Cervical Radiculopathy & Brachial Plexus Strain"
             pattern_title_hi = "सर्वाइकल - गर्दन से कंधे और हाथ तक नस दबने का दर्द"
@@ -1468,23 +1560,164 @@ class AnatomicalPointAnalyzer:
             ]
             pearl = "Spurling's maneuver (cervical extension and lateral rotation) narrowing the neural foramen confirms cervical nerve root impingement. McKenzie chin tucks relieve anterior disc pressure."
 
-        # 4. Multi-Focal General Pattern
+        # --- B. ANTERIOR KINETIC CHAINS (FRONT OF BODY) ---
+
+        # 4. Anterior Lower Limb Extensor Chain (Quadriceps -> Patellofemoral Knee -> Shin / Tibialis)
+        elif is_primarily_anterior and ((has_ant_knee and has_ant_shin) or (has_ant_thigh and (has_ant_knee or has_ant_shin))):
+            pattern_id = "ANTERIOR_LOWER_LIMB_EXTENSOR_CHAIN"
+            pattern_title_en = f"Anterior Lower Limb Extensor Chain: {side_str} Quadriceps, Patellofemoral & Tibial Stress Syndrome"
+            pattern_title_hi = f"{side_str} पैर के आगे का दर्द: जांघ, घुटने की कटोरी व पिंडली की हड्डी (क्वाड्रिसेप्स व शिन स्प्लिंट्स)"
+            primary_region = next((p.get("region_id") for p in points_detail if "KNEE" in p.get("region_id", "") or "SHIN" in p.get("region_id", "")), points_detail[0].get("region_id", "LEFT_KNEE"))
+            path_summary_en = f"Continuous anterior extensor chain pain tracked along quadriceps, patellofemoral joint, and anterior tibia ({len(points)} points mapped). Indicative of eccentric quadriceps overload and anterior compartment/patellofemoral stress."
+            path_summary_hi = f"जांघ के आगे से घुटने और पिंडली की हड्डी तक दर्द की रेखा ({len(points)} बिंदु चिह्नित)। यह घुटने व पिंडली की मांसपेशियों पर अत्यधिक खिंचाव का लक्षण है।"
+
+            doc_greeting_en = f"Hello, I am Dr. AI. I have reviewed the front pain path mapped across your {side_str} thigh, knee, and shin. Let us evaluate your patellofemoral alignment and tibial stress."
+            doc_greeting_hi = f"नमस्ते, मैं आपका AI डॉक्टर हूँ। आपके {side_str} पैर के आगे जांघ, घुटने और पिंडली में दर्द की रेखा को मैंने देखा है। आइए जांच करते हैं।"
+
+            doc_questions = [
+                {
+                    "id": "Q_ANT_KNEE_STAIRS",
+                    "prompt_en": "Does walking down stairs, squatting, or sitting with bent knees for long durations intensify the ache in front of your knee or shin?",
+                    "prompt_hi": "क्या सीढ़ियां उतरने, उकड़ू बैठने या घुटने मोड़कर देर तक बैठने पर घुटने के आगे या पिंडली में तेज दर्द होता है?",
+                    "choices": [
+                        {"value": "WORSE_STAIRS_SQUAT", "label": "Yes: Deep ache worsens significantly with stairs and squatting (हाँ, सीढ़ियां उतरने व बैठने पर दर्द बढ़ता है)"},
+                        {"value": "RUNNING_SHIN_ACHE", "label": "Aching along the shin bone after prolonged walking/running (चलने-दौड़ने पर पिंडली की हड्डी में दर्द होता है)"},
+                        {"value": "MILD_REST_PAIN", "label": "Dull ache present even at rest (बैठे रहने पर भी हल्का दर्द बना रहता है)"}
+                    ]
+                }
+            ]
+
+            movements = [
+                {
+                    "test_id": "TEST_SEATED_KNEE_EXTENSION",
+                    "title": "Camera-Guided Active Knee Extension & Flexion",
+                    "instruction_en": "Sit in profile to the camera. Slowly straighten your leg fully forward, hold for 1 second, then bend back underneath the chair.",
+                    "instruction_hi": "कुर्सी पर बैठकर पैर को आगे पूरा सीधा करें, 1 सेकंड रोकें, फिर पीछे मोड़ें।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "KNEE"
+                }
+            ]
+
+            provocative = [
+                {
+                    "test_id": "TEST_PATELLAR_GRIND_SHIN_PALPATION",
+                    "title": "Patellar Facet & Anterior Tibial Crest Palpation",
+                    "instruction_en": "Press gently around the edges of the kneecap and along the front shin bone crest. Rate maximum focal tenderness.",
+                    "instruction_hi": "घुटने की कटोरी के किनारों और पिंडली की आगे वाली हड्डी पर दबाकर 0 से 10 तक दर्द बताएं।",
+                    "action_type": "PALPATION_SCORE"
+                }
+            ]
+
+            differentials = [
+                "Patellofemoral Pain Syndrome / Runner's Knee (घुटने की कटोरी के आगे व नीचे दर्द)",
+                "Medial Tibial Stress Syndrome / Shin Splints (पिंडली की आगे वाली हड्डी में दर्द व सूजन)",
+                "Quadriceps Muscle Strain / Tendinopathy (जांघ के आगे की मांसपेशी का खिंचाव)",
+                "Infrapatellar Tendonitis / Jumper's Knee (घुटने के आगे की नस में सूजन)"
+            ]
+            pearl = "Anterior knee pain exacerbated by downhill stairs or prolonged sitting (theatre sign) points to patellofemoral syndrome. Pain along the distal two-thirds of the posteromedial tibial border confirms Medial Tibial Stress Syndrome."
+
+        # 5. Anterior Thoracoabdominal Wall Chain (Chest -> Abdomen / Core)
+        elif is_primarily_anterior and (has_ant_chest and has_ant_abdomen):
+            pattern_id = "ANTERIOR_THORACOABDOMINAL_WALL_PATH"
+            pattern_title_en = f"{side_str} Thoracoabdominal Wall & Musculoskeletal Core Strain"
+            pattern_title_hi = f"{side_str} सीने की पसली व पेट की मांसपेशी का खिंचाव (कॉस्टोकॉन्ड्राइटिस व कोर खिंचाव)"
+            primary_region = next((p.get("region_id") for p in points_detail if "CHEST" in p.get("region_id", "")), points_detail[0].get("region_id", "LEFT_CHEST_THORACIC"))
+            path_summary_en = f"Pain line tracked along the anterior rib cage and abdominal wall ({len(points)} points mapped). Indicative of costochondral or myofascial core strain."
+            path_summary_hi = f"सीने की पसलियों और पेट की मांसपेशियों के साथ दर्द की रेखा ({len(points)} बिंदु चिह्नित)। यह पसली व पेट की मांसपेशी के खिंचाव का संकेत है।"
+
+            doc_greeting_en = f"Hello, I am Dr. AI. I have reviewed the pain points marked along your {side_str} chest and abdomen. Let us examine the muscle and rib wall."
+            doc_greeting_hi = f"नमस्ते, मैं आपका AI डॉक्टर हूँ। आपके सीने और पेट पर चिह्नित दर्द के बिंदुओं को मैंने देखा है।"
+
+            doc_questions = [
+                {
+                    "id": "Q_THORACOABDOMINAL_BREATH",
+                    "prompt_en": "Does taking a deep breath, coughing, or twisting your torso recreate the sharp pain?",
+                    "prompt_hi": "क्या गहरी सांस लेने, खांसने या शरीर को घुमाने पर सीने या पेट में चुभन होती है?",
+                    "choices": [
+                        {"value": "SHARP_ON_BREATH", "label": "Yes: Deep breathing or coughing triggers sharp stitch (हाँ, सांस खींचने या खांसने पर तेज चुभता है)"},
+                        {"value": "CONSTANT_ACHE", "label": "No: Constant muscular ache (नहीं, लगातार भारीपन रहता है)"}
+                    ]
+                }
+            ]
+
+            movements = [
+                {
+                    "test_id": "TEST_CHEST_EXPANSION_COUGH",
+                    "title": "Deep Inspiration & Rib Cage Expansion Challenge",
+                    "instruction_en": "Take a maximum deep inspiration and hold for 3 seconds facing the camera.",
+                    "instruction_hi": "गहरी सांस अंदर खींचें और 3 सेकंड रोकें।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "SPINE"
+                }
+            ]
+
+            provocative = [
+                {
+                    "test_id": "TEST_PALPATION_COSTOCHONDRAL",
+                    "title": "Focal Costochondral & Abdominal Palpation",
+                    "instruction_en": "Firmly palpate the costochondral junctions and upper rectus abdominis. Rate tenderness from 0 to 10.",
+                    "instruction_hi": "सीने की पसली और पेट पर दबाकर 0 से 10 तक दर्द बताएं।",
+                    "action_type": "PALPATION_SCORE"
+                }
+            ]
+
+            differentials = [
+                "Costochondritis / Tietze Syndrome (सीने की पसली व कार्टिलेज की सूजन)",
+                "Rectus Abdominis Muscle Strain (पेट की सीधी मांसपेशी का खिंचाव)",
+                "Intercostal Muscle Strain (पसलियों के बीच की मांसपेशी में खिंचाव)",
+                "Anterior Cutaneous Nerve Entrapment Syndrome (ACNES)"
+            ]
+            pearl = "Chest wall pain tender to localized fingertip palpation over costochondral junctions is costochondritis, not visceral disease. Carnett's test helps differentiate abdominal wall pain from internal organs."
+
+        # 6. Specific Multi-Focal Regional Pattern (Tailored directly to the ACTUAL selected points)
         else:
             first_analysis = points_detail[0]
-            pattern_id = f"MULTI_POINT_{first_analysis.get('region_id', 'GENERAL')}"
-            pattern_title_en = f"Multi-Focal Pain Pattern: {first_analysis.get('display_name', 'Target Region')}"
-            pattern_title_hi = f"चिह्नित दर्द क्षेत्र: {first_analysis.get('display_name', 'शरीर का भाग')}"
-            primary_region = first_analysis.get("region_id", "LUMBAR_SPINE")
-            path_summary_en = f"{len(points)} distinct pain points localized on the 3D model. Tailored clinical evaluation active."
-            path_summary_hi = f"3D मॉडल पर {len(points)} दर्द के बिंदु चिह्नित किए गए। विस्तृत डॉक्टर जांच तैयार है।"
+            region_name = first_analysis.get('display_name', 'Target Region')
+            primary_region = first_analysis.get("region_id", "LOCAL_JOINT")
+            pattern_id = f"MULTI_POINT_{primary_region}"
+            pattern_title_en = f"Multi-Focal Pain Pattern: {region_name}"
+            pattern_title_hi = f"चिह्नित दर्द क्षेत्र: {region_name}"
+            path_summary_en = f"{len(points)} distinct pain points localized in the {region_name} on the 3D model. Tailored clinical evaluation active."
+            path_summary_hi = f"3D मॉडल पर {region_name} में {len(points)} दर्द के बिंदु चिह्नित किए गए।"
 
-            doc_greeting_en = f"Hello, I am Dr. AI. I have reviewed the {len(points)} painful locations you marked on your {first_analysis.get('display_name')}. Let us examine the cause of your discomfort."
-            doc_greeting_hi = f"नमस्ते, मैं आपका AI डॉक्टर हूँ। आपके द्वारा शरीर पर चिह्नित {len(points)} दर्द के बिंदुओं को मैंने देखा है। आइए आपकी स्थिति की विस्तृत जांच करते हैं।"
+            doc_greeting_en = f"Hello, I am Dr. AI. I have reviewed the {len(points)} painful locations you marked on your {region_name}. Let us examine the cause of your discomfort."
+            doc_greeting_hi = f"नमस्ते, मैं आपका AI डॉक्टर हूँ। आपके {region_name} पर चिह्नित {len(points)} दर्द के बिंदुओं को मैंने देखा है। आइए जांच करते हैं।"
 
-            doc_questions = first_analysis.get("clinical_decisions", {}).get("diagnostic_questions", [])
-            movements = [t for t in first_analysis.get("clinical_decisions", {}).get("recommended_tests", []) if t.get("action_type") == "VIDEO_MOVEMENT"]
-            provocative = [t for t in first_analysis.get("clinical_decisions", {}).get("recommended_tests", []) if t.get("action_type") != "VIDEO_MOVEMENT"]
-            differentials = first_analysis.get("clinical_decisions", {}).get("differential_diagnosis", [])
+            # Aggregate questions and tests from all unique touched regions
+            doc_questions = []
+            seen_q_ids = set()
+            for pt_det in points_detail:
+                for q in pt_det.get("clinical_decisions", {}).get("diagnostic_questions", []):
+                    if q["id"] not in seen_q_ids:
+                        seen_q_ids.add(q["id"])
+                        doc_questions.append(q)
+
+            movements = []
+            seen_m_ids = set()
+            for pt_det in points_detail:
+                for m in pt_det.get("clinical_decisions", {}).get("recommended_tests", []):
+                    if m.get("action_type") == "VIDEO_MOVEMENT" and m.get("test_id") not in seen_m_ids:
+                        seen_m_ids.add(m.get("test_id"))
+                        movements.append(m)
+
+            provocative = []
+            seen_p_ids = set()
+            for pt_det in points_detail:
+                for t in pt_det.get("clinical_decisions", {}).get("recommended_tests", []):
+                    if t.get("action_type") != "VIDEO_MOVEMENT" and t.get("test_id") not in seen_p_ids:
+                        seen_p_ids.add(t.get("test_id"))
+                        provocative.append(t)
+
+            # Aggregate differentials strictly from the touched regions
+            differentials = []
+            for pt_det in points_detail:
+                for diff in pt_det.get("clinical_decisions", {}).get("differential_diagnosis", []):
+                    if diff not in differentials:
+                        differentials.append(diff)
+
+            if not differentials:
+                differentials = first_analysis.get("clinical_decisions", {}).get("differential_diagnosis", [f"{region_name} Musculoskeletal Strain"])
+
             pearl = first_analysis.get("clinical_decisions", {}).get("clinical_pearl", "")
 
         # Always add guided palpation for each marked point

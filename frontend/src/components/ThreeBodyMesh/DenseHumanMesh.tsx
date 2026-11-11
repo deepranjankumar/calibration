@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
@@ -11,6 +11,7 @@ interface DenseHumanMeshProps {
   measurements?: BiomechanicalMeasurement[];
   findings?: ClinicalFinding[];
   isExamActive: boolean;
+  isMotionActive?: boolean;
   selectedPoint?: Point3D | null;
   selectedPoints?: Point3D[];
   selectionMode?: 'POINT' | 'LINE';
@@ -37,7 +38,7 @@ const RadiationCylinder: React.FC<{
   return (
     <group>
       {/* Outer soft glowing sheath */}
-      <mesh position={position} quaternion={quaternion}>
+      <mesh position={position} quaternion={quaternion} raycast={() => null}>
         <cylinderGeometry args={[0.014, 0.014, length, 16]} />
         <meshStandardMaterial
           color={color}
@@ -50,7 +51,7 @@ const RadiationCylinder: React.FC<{
         />
       </mesh>
       {/* Inner intense radiant laser core */}
-      <mesh position={position} quaternion={quaternion}>
+      <mesh position={position} quaternion={quaternion} raycast={() => null}>
         <cylinderGeometry args={[0.006, 0.006, length, 16]} />
         <meshBasicMaterial
           color="#ffffff"
@@ -91,17 +92,17 @@ const ANATOMICAL_ZONES: AnatomicalZone[] = [
 
 export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
   selectedRegion,
-  onSelectRegion,
+  onSelectRegion: _onSelectRegion,
   affectedSide,
   measurements = [],
   findings = [],
   isExamActive: _isExamActive,
+  isMotionActive = false,
   selectedPoint,
   selectedPoints,
-  selectionMode: _selectionMode,
+  selectionMode = 'LINE',
   onSelectPoint,
 }) => {
-  const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const pulseRef = useRef<THREE.Group>(null);
 
   // Load canonical SMPL anatomical athletic mesh (Image 1 aesthetic)
@@ -209,7 +210,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
   return (
     <group position={[0, -0.05, 0]}>
       {/* --- DENSE ANATOMICAL HUMAN MESH (IMAGE 1 WIREFRAME AESTHETIC) --- */}
-      {bodyGeometry && (
+      {bodyGeometry && !isMotionActive && (
         <group>
           {/* Layer 1: Dark core + Raycast surface listener for ANY POINT on the body */}
           <mesh
@@ -237,20 +238,20 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
               roughness={0.5}
               metalness={0.1}
               transparent
-              opacity={0.65}
+              opacity={isMotionActive ? 0.25 : 0.65}
               depthWrite={false}
             />
           </mesh>
 
           {/* Layer 2: Radiant glowing cyan wireframe topology (Getty aesthetic) */}
-          <mesh geometry={bodyGeometry}>
+          <mesh geometry={bodyGeometry} raycast={() => null}>
             <meshStandardMaterial
               color="#00e5ff"
               emissive="#00b4d8"
-              emissiveIntensity={0.4}
+              emissiveIntensity={isMotionActive ? 0.2 : 0.4}
               wireframe
               transparent
-              opacity={0.85}
+              opacity={isMotionActive ? 0.35 : 0.85}
             />
           </mesh>
         </group>
@@ -259,8 +260,9 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
       {/* --- MULTI-POINT & RADIATION LINE 3D PINS --- */}
       {selectedPoints && selectedPoints.length > 0 ? (
         <group>
-          {/* 3D Glowing Radiation Tube connecting consecutive nodes in LINE mode */}
-          {selectedPoints.length >= 2 &&
+          {/* 3D Glowing Radiation Tube connecting consecutive nodes ONLY in LINE mode */}
+          {selectionMode === 'LINE' &&
+            selectedPoints.length >= 2 &&
             selectedPoints.slice(0, -1).map((pt, idx) => {
               const nextPt = selectedPoints[idx + 1];
               return (
@@ -277,7 +279,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
           {selectedPoints.map((pt, idx) => (
             <group key={`pt-${idx}-${pt.x.toFixed(3)}-${pt.y.toFixed(3)}`} position={[pt.x, pt.y, pt.z]}>
               <group ref={idx === selectedPoints.length - 1 ? pulseRef : undefined}>
-                <mesh position={[0, 0, 0.02]}>
+                <mesh position={[0, 0, 0.02]} raycast={() => null}>
                   <ringGeometry args={[0.035, 0.065, 32]} />
                   <meshBasicMaterial
                     color={idx === 0 ? '#00e5ff' : '#f59e0b'}
@@ -289,7 +291,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
                 </mesh>
               </group>
 
-              <mesh>
+              <mesh raycast={() => null}>
                 <sphereGeometry args={[0.018, 16, 16]} />
                 <meshStandardMaterial
                   color={idx === 0 ? '#38bdf8' : '#fbbf24'}
@@ -300,8 +302,8 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
               </mesh>
 
               {/* Number Pin Badge */}
-              <Html position={[0, 0.045, 0]} center distanceFactor={3.5} style={{ pointerEvents: 'none' }}>
-                <div className="bg-slate-900/95 text-cyan-300 border border-cyan-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-lg">
+              <Html position={[0, 0.045, 0]} center distanceFactor={3.5} zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+                <div className="bg-slate-900/95 text-cyan-300 border border-cyan-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-lg pointer-events-none select-none">
                   {idx + 1}
                 </div>
               </Html>
@@ -314,7 +316,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
           <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
             {/* Animated radiating beacon pulse ring */}
             <group ref={pulseRef}>
-              <mesh position={[0, 0, 0.02]}>
+              <mesh position={[0, 0, 0.02]} raycast={() => null}>
                 <ringGeometry args={[0.045, 0.08, 32]} />
                 <meshBasicMaterial
                   color="#00e5ff"
@@ -324,7 +326,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
                   depthWrite={false}
                 />
               </mesh>
-              <mesh position={[0, 0, 0.025]}>
+              <mesh position={[0, 0, 0.025]} raycast={() => null}>
                 <ringGeometry args={[0.015, 0.035, 32]} />
                 <meshBasicMaterial
                   color="#f59e0b"
@@ -337,7 +339,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
             </group>
 
             {/* Glowing central target sphere */}
-            <mesh>
+            <mesh raycast={() => null}>
               <sphereGeometry args={[0.02, 16, 16]} />
               <meshStandardMaterial
                 color="#38bdf8"
@@ -350,100 +352,32 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
         )
       )}
 
-      {/* --- INTERACTIVE ANATOMICAL RAYCAST HIT ZONES --- */}
+      {/* --- ACTIVE ANATOMICAL SELECTION INDICATOR (CLEAN: NO BLOCKING COLLIDERS OR HOVER TEXT) --- */}
       {ANATOMICAL_ZONES.map((zone) => {
         const isSelected = selectedRegion === zone.id;
-        const isHovered = hoveredZone === zone.id;
+        if (!isSelected) return null;
 
         return (
-          <group key={zone.id} position={zone.position}>
-            {/* Clickable raycast collider: 100% invisible with depthWrite=false so it NEVER blocks or cuts wireframe */}
-            <mesh
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onSelectRegion) {
-                  onSelectRegion(zone.id, zone.side as 'RIGHT' | 'LEFT');
-                }
-              }}
-              onPointerOver={(e) => {
-                e.stopPropagation();
-                setHoveredZone(zone.id);
-                document.body.style.cursor = 'pointer';
-              }}
-              onPointerOut={() => {
-                setHoveredZone(null);
-                document.body.style.cursor = 'default';
-              }}
-            >
-              <sphereGeometry args={[zone.radius * 1.2, 16, 16]} />
+          <group key={zone.id} position={zone.position} ref={pulseRef}>
+            <mesh position={[0, 0, 0.03]} raycast={() => null}>
+              <ringGeometry args={[0.05, 0.085, 32]} />
               <meshBasicMaterial
+                color={jointColor}
+                side={THREE.DoubleSide}
                 transparent
-                opacity={0}
+                opacity={0.9}
                 depthWrite={false}
               />
             </mesh>
-
-            {/* Glowing cyan hover indicator ring (ONLY rendered when hovering) */}
-            {isHovered && !isSelected && (
-              <mesh position={[0, 0, 0.02]}>
-                <ringGeometry args={[0.04, 0.065, 32]} />
-                <meshBasicMaterial
-                  color="#00e5ff"
-                  side={THREE.DoubleSide}
-                  transparent
-                  opacity={0.9}
-                  depthWrite={false}
-                />
-              </mesh>
-            )}
-
-            {/* Glowing pulse ring ONLY when user explicitly picks this point */}
-            {isSelected && (
-              <group ref={pulseRef}>
-                <mesh position={[0, 0, 0.03]}>
-                  <ringGeometry args={[0.05, 0.085, 32]} />
-                  <meshBasicMaterial
-                    color={jointColor}
-                    side={THREE.DoubleSide}
-                    transparent
-                    opacity={0.9}
-                    depthWrite={false}
-                  />
-                </mesh>
-                <mesh>
-                  <sphereGeometry args={[0.02, 16, 16]} />
-                  <meshStandardMaterial
-                    color={jointColor}
-                    emissive={jointColor}
-                    emissiveIntensity={0.9}
-                    depthWrite={false}
-                  />
-                </mesh>
-              </group>
-            )}
-
-            {/* Interactive hover tooltip */}
-            {isHovered && (
-              <Html distanceFactor={3.8} position={[0, 0.16, 0]} center style={{ pointerEvents: 'none' }}>
-                <div
-                  style={{
-                    backgroundColor: 'rgba(6, 14, 28, 0.95)',
-                    color: '#22d3ee',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    border: '1.5px solid #00e5ff',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.8)',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    pointerEvents: 'none',
-                    whiteSpace: 'nowrap',
-                    letterSpacing: '0.02em',
-                  }}
-                >
-                  👉 Click to examine: {zone.name}
-                </div>
-              </Html>
-            )}
+            <mesh raycast={() => null}>
+              <sphereGeometry args={[0.02, 16, 16]} />
+              <meshStandardMaterial
+                color={jointColor}
+                emissive={jointColor}
+                emissiveIntensity={0.9}
+                depthWrite={false}
+              />
+            </mesh>
           </group>
         );
       })}
@@ -494,7 +428,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
           </line>
 
           {/* 3. Floating 3D Angle & ROM Readout Callout */}
-          <Html position={jointKinematics.calloutPos} center distanceFactor={3.8} style={{ pointerEvents: 'none' }}>
+          <Html position={jointKinematics.calloutPos} center distanceFactor={3.8} zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
             <div className="bg-slate-950/95 border border-cyan-500/60 rounded-xl p-3 shadow-2xl backdrop-blur-md text-white min-w-[200px]">
               <div className="flex items-center justify-between gap-2 border-b border-cyan-500/30 pb-1 mb-1.5">
                 <span className="text-[10px] font-bold tracking-wider uppercase text-cyan-400 font-mono">
@@ -557,7 +491,7 @@ export const DenseHumanMesh: React.FC<DenseHumanMeshProps> = ({
                 <sphereGeometry args={[0.02, 16, 16]} />
                 <meshBasicMaterial color="#ef4444" depthWrite={false} />
               </mesh>
-              <Html distanceFactor={3.8} position={[0, 0.08, 0]} center style={{ pointerEvents: 'none' }}>
+              <Html distanceFactor={3.8} position={[0, 0.08, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
                 <div className="bg-red-950/90 border border-red-500/50 text-red-200 text-[10px] px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">
                   ● {finding.title}
                 </div>

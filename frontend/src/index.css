@@ -461,6 +461,18 @@ html, body, #root {
   }
 
   /* Make modal take natural printable page flow */
+  .report-modal-portal {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
   .print-modal-window {
     position: static !important;
     max-height: none !important;

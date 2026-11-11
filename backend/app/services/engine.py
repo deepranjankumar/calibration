@@ -1,10 +1,13 @@
 import os
 import uuid
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.models.examination import (
     Examination,
@@ -158,13 +161,31 @@ class ExaminationWorkflowEngine:
 
         # Find protocol definition
         if exam.point_analysis:
-            active_protocol = point_analyzer.generate_protocol_steps_for_point(exam.point_analysis)
+            if "pattern_title_en" in exam.point_analysis or "path_summary_en" in exam.point_analysis or "trajectory_points" in exam.point_analysis:
+                active_protocol = point_analyzer.generate_protocol_steps_for_path(exam.point_analysis)
+            elif "clinical_decisions" in exam.point_analysis:
+                active_protocol = point_analyzer.generate_protocol_steps_for_point(exam.point_analysis)
+            else:
+                active_protocol = get_protocol_for_region(exam.selected_region)
         else:
             active_protocol = get_protocol_for_region(exam.selected_region)
 
         step_def = next((s for s in active_protocol if s.step_id == step_id), None)
-        if not step_def:
-            raise ValueError(f"Step definition {step_id} not found in active protocol")
+        if not step_def and current_step_record:
+            step_def = ProtocolStepDef(
+                step_id=current_step_record.step_id,
+                phase=current_step_record.phase,
+                title=current_step_record.title,
+                operator_instruction=current_step_record.operator_instruction or "",
+                patient_question=current_step_record.patient_question or "",
+                patient_question_hi=current_step_record.patient_question_hi,
+                action_type=current_step_record.action_type,
+                input_config=current_step_record.input_config or {},
+                is_red_flag=current_step_record.phase == "RED_FLAGS" or "RED_FLAG" in current_step_record.step_id,
+                abort_on_true=current_step_record.phase == "RED_FLAGS" or "RED_FLAG" in current_step_record.step_id,
+                red_flag_alert_reason="Red flag symptom confirmed",
+                urgency_level="EMERGENCY_IMMEDIATE"
+            )
 
         # Create submission record
         sub = StepSubmission(
@@ -379,15 +400,20 @@ class ExaminationWorkflowEngine:
         
         if exam.point_analysis:
             p_data = exam.point_analysis
-            disp = p_data.get('display_name', exam.selected_region.replace('_', ' '))
+            disp = p_data.get('pattern_title_en') or p_data.get('display_name', exam.selected_region.replace('_', ' '))
             structs = p_data.get('anatomical_structures', {})
             rx = p_data.get('clinical_decisions', {}).get('treatment_plan', {})
 
             lines = [
                 f"Comprehensive Physical Examination for {exam.patient_name} targeted to {disp} completed under {exam.protocol_name}.",
-                f"Identified anatomical structure: {structs.get('primary_muscle', 'Target tissue')} (Innervation: {structs.get('innervation', 'N/A')}; Tissue: {structs.get('tissue_type', 'Musculoskeletal')}).",
-                "All red-flag emergency screening questions were answered.",
             ]
+            if p_data.get('path_summary_en'):
+                lines.append(f"Pain Pattern: {p_data.get('path_summary_en')}")
+            elif structs:
+                lines.append(f"Identified anatomical structure: {structs.get('primary_muscle', 'Target tissue')} (Innervation: {structs.get('innervation', 'N/A')}; Tissue: {structs.get('tissue_type', 'Musculoskeletal')}).")
+
+            lines.append("All red-flag emergency screening questions were answered.")
+
             if exam.selected_point:
                 lines.append(f"Pinpointed Coordinates on 3D Body Mesh: [X: {exam.selected_point.get('x', 0):.2f}, Y: {exam.selected_point.get('y', 0):.2f}, Z: {exam.selected_point.get('z', 0):.2f}].")
             
@@ -411,14 +437,6 @@ class ExaminationWorkflowEngine:
                     lines.append(f"Estimated Recovery Window: {rx.get('recovery_timeline')}")
 
             exam.clinical_summary = " ".join(lines)
-
-        # Automatically formulate & persist the AI-generated prescription
-        try:
-            from app.services.report_generator import build_prescription_for_exam
-            ai_rx = build_prescription_for_exam(exam)
-            exam.custom_prescription = ai_rx.model_dump(mode="json") if hasattr(ai_rx, "model_dump") else json.loads(ai_rx.json())
-        except Exception as rx_err:
-            logger.warning(f"Could not auto-persist synthesis prescription: {rx_err}")
         else:
             region_label = exam.selected_region.replace('_', ' ').title()
             lines = [

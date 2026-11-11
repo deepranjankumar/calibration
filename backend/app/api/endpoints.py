@@ -42,7 +42,9 @@ def _format_exam_response(exam) -> dict:
         "patient_orientation": exam.patient_orientation,
         "patient_calibration": getattr(exam, "patient_calibration", None),
         "selected_point": getattr(exam, "selected_point", None),
+        "selected_points": getattr(exam, "selected_points", None) or (exam.point_analysis.get("trajectory_points") if isinstance(getattr(exam, "point_analysis", None), dict) else None),
         "point_analysis": getattr(exam, "point_analysis", None),
+        "pain_path_analysis": getattr(exam, "point_analysis", None) if isinstance(getattr(exam, "point_analysis", None), dict) and "pattern_title_en" in getattr(exam, "point_analysis", None) else None,
         "status": exam.status,
         "protocol_name": exam.protocol_name,
         "current_step_id": exam.current_step_id,
@@ -194,6 +196,7 @@ def get_examination(exam_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Examination not found")
     return _format_exam_response(exam)
 
+@router.post("/{exam_id}/steps/{step_id}", response_model=ExaminationDetailResponse)
 @router.post("/{exam_id}/steps/{step_id}/submit", response_model=ExaminationDetailResponse)
 async def submit_step(
     exam_id: str,
@@ -237,6 +240,10 @@ async def submit_step(
         return _format_exam_response(updated_exam)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Server error processing step: {str(e)}")
 
 @router.post("/{exam_id}/steps/{step_id}/submit-json", response_model=ExaminationDetailResponse)
 def submit_step_json(
@@ -261,6 +268,10 @@ def submit_step_json(
         return _format_exam_response(updated_exam)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Server error processing step: {str(e)}")
 
 @router.get("/{exam_id}/report", response_model=StructuredClinicalReport)
 def get_structured_report(exam_id: str, db: Session = Depends(get_db)):

@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
-import type { Examination, PatientCalibration, Point3D, PointAnalysis, PainPathAnalysis } from '../../types/examination';
-import { calibratePatientMesh } from '../../services/api';
+import React, { useState, useRef, useEffect } from 'react';
+import type { Examination, PatientCalibration, Point3D, PointAnalysis, PainPathAnalysis, StructuredClinicalReport } from '../../types/examination';
+import { calibratePatientMesh, getStructuredReport } from '../../services/api';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -35,6 +35,8 @@ import {
   Pill,
   X,
   Zap,
+  Dumbbell,
+  ExternalLink,
 } from 'lucide-react';
 import {
   getHindiQuestion,
@@ -141,8 +143,30 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
   // Live webcam recording state
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+  // Completed examination report state (for instant inline prescription & exercises display)
+  const [completedReport, setCompletedReport] = useState<StructuredClinicalReport | null>(null);
+  const [loadingCompletedReport, setLoadingCompletedReport] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (examination?.id && (examination.status === 'COMPLETED' || examination.urgent_referral)) {
+      setLoadingCompletedReport(true);
+      getStructuredReport(examination.id)
+        .then((data) => setCompletedReport(data))
+        .catch((err) => console.warn('Could not load completed report for workflow panel:', err))
+        .finally(() => setLoadingCompletedReport(false));
+    }
+  }, [examination?.id, examination?.status, examination?.urgent_referral]);
   const videoElemRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Automatically scroll to top when step changes or when examination completes
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [examination?.current_step_index, examination?.status]);
 
   // Photo intake & 3D mesh calibration state
   const [isCalibratingPhoto, setIsCalibratingPhoto] = useState<boolean>(false);
@@ -574,7 +598,7 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
       </div>
 
       {/* --- BODY SCROLL AREA --- */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-5 space-y-4">
         {/* === SCREEN 1: PRE-EXAM REGION & PATIENT INTAKE === */}
         {!examination && (
           <div className="space-y-4">
@@ -1381,39 +1405,145 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
               </div>
             )}
 
-            {/* --- COMPLETED BANNER & FINAL PRESCRIPTION CTA --- */}
+            {/* --- COMPLETED BANNER & INSTANT INLINE PRESCRIPTION & EXERCISES --- */}
             {examination.status === 'COMPLETED' && !examination.urgent_referral && (
-              <div className="bg-gradient-to-b from-emerald-950 to-slate-950 border-2 border-emerald-500 rounded-2xl p-4 space-y-3.5 shadow-2xl animate-in fade-in zoom-in-95">
-                <div className="flex items-center justify-between">
+              <div className="bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border-2 border-emerald-500 rounded-2xl p-4 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+                {/* Header Status */}
+                <div className="flex items-center justify-between border-b border-emerald-500/30 pb-2.5">
                   <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
                     <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                     <span>Physical Examination Protocol Completed!</span>
                   </div>
-                  <span className="text-[10px] bg-emerald-900/80 text-emerald-200 px-2 py-0.5 rounded font-mono font-bold border border-emerald-700">
+                  <span className="text-[10px] bg-emerald-900/90 text-emerald-200 px-2.5 py-0.5 rounded-full font-mono font-bold border border-emerald-600">
                     Rx Ready
                   </span>
                 </div>
-                <p className="text-xs text-emerald-100 leading-relaxed">
-                  {examination.clinical_summary || 'Comprehensive physical examination and movement analysis concluded successfully. Targeted pharmacological and physical therapy prescriptions have been generated.'}
-                </p>
-                <div className="bg-emerald-900/30 border border-emerald-600/40 p-2.5 rounded-xl text-xs text-emerald-200 space-y-1">
-                  <div className="font-bold flex items-center gap-1.5 text-emerald-300">
-                    <Pill className="w-4 h-4 text-emerald-400" />
-                    <span>Prescription & Rehabilitation Protocol:</span>
-                  </div>
-                  <div className="text-[11px] text-slate-300">
-                    • Specific Medications with <strong>"How to Use / लेने का तरीका"</strong> guidelines<br/>
-                    • Targeted Physiotherapy Exercises with <strong>"How to Perform / करने की विधि"</strong> & Reps/Sets<br/>
-                    • Home care cryotherapy/elevation & activity restrictions
-                  </div>
+
+                {/* Primary Diagnosis Callout */}
+                <div className="bg-emerald-950/70 border border-emerald-500/60 rounded-xl p-3 space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-emerald-400 font-mono tracking-wider block">
+                    🎯 AI Synthesized Clinical Diagnosis (अंतिम रोग निदान)
+                  </span>
+                  <h3 className="text-sm font-extrabold text-white leading-snug">
+                    {completedReport?.prescription?.clinical_diagnosis || `${examination.affected_side} ${examination.selected_region.replace('_', ' ')} Strain & Mechanical Overload`}
+                  </h3>
                 </div>
+
+                {/* Action CTA: Open Full Report */}
                 <button
                   type="button"
                   onClick={onOpenReport}
-                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer transform hover:scale-[1.01]"
                 >
                   <FileText className="w-4 h-4" />
-                  <span>📄 Open Final Prescription & Exercise Plan (दवा और व्यायाम पर्ची) →</span>
+                  <span>📄 Open Full Screen Report & Print (पूरी पर्ची देखें व प्रिंट करें) →</span>
+                </button>
+
+                {/* Section 1: Prescribed Medications Instant Preview */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-1.5">
+                    <span className="font-bold text-emerald-300 flex items-center gap-1.5 uppercase font-mono text-[11px]">
+                      <Pill className="w-3.5 h-3.5 text-emerald-400" />
+                      1. Prescribed Medications (निर्धारित दवाइयां)
+                    </span>
+                    <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded font-mono">
+                      {completedReport?.prescription?.medications?.length || 0} Meds
+                    </span>
+                  </div>
+
+                  {loadingCompletedReport ? (
+                    <div className="p-3 text-center text-xs text-slate-400 italic">
+                      Loading pharmacological prescription...
+                    </div>
+                  ) : completedReport?.prescription?.medications && completedReport.prescription.medications.length > 0 ? (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {completedReport.prescription.medications.map((med, idx) => (
+                        <div key={idx} className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 text-xs space-y-1.5">
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-600 text-[10px] flex items-center justify-center flex-shrink-0">
+                                {idx + 1}
+                              </span>
+                              <span>{med.name}</span>
+                            </div>
+                            <span className="text-[10px] bg-slate-800 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold flex-shrink-0">
+                              {med.duration}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-cyan-300 bg-slate-950 px-2 py-1 rounded">
+                            <span>मात्रा: {med.dosage}</span>
+                            <span className="font-semibold text-amber-300">{med.frequency}</span>
+                          </div>
+                          {med.how_to_use && (
+                            <p className="text-[11px] text-slate-300 font-hindi leading-snug pt-0.5">
+                              {med.how_to_use}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-3 text-center text-xs text-slate-400 italic">
+                      Click the button above to view full prescription.
+                    </div>
+                  )}
+                </div>
+
+                {/* Section 2: Prescribed Physiotherapy Exercises Instant Preview */}
+                <div className="space-y-2 pt-1 border-t border-slate-800">
+                  <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-1.5">
+                    <span className="font-bold text-cyan-300 flex items-center gap-1.5 uppercase font-mono text-[11px]">
+                      <Dumbbell className="w-3.5 h-3.5 text-cyan-400" />
+                      2. Prescribed Exercises (कसरत व व्यायाम)
+                    </span>
+                    <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded font-mono">
+                      {completedReport?.prescription?.exercises?.length || 0} Exercises
+                    </span>
+                  </div>
+
+                  {loadingCompletedReport ? (
+                    <div className="p-3 text-center text-xs text-slate-400 italic">
+                      Loading exercise protocol...
+                    </div>
+                  ) : completedReport?.prescription?.exercises && completedReport.prescription.exercises.length > 0 ? (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {completedReport.prescription.exercises.map((ex, idx) => (
+                        <div key={idx} className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 text-xs space-y-1.5">
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-600 text-[10px] flex items-center justify-center flex-shrink-0">
+                                {idx + 1}
+                              </span>
+                              <span>{ex.name}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-amber-300 bg-slate-950 px-2 py-1 rounded font-mono">
+                            <span>{ex.sets_reps}</span>
+                            <span className="text-cyan-300">{ex.frequency}</span>
+                          </div>
+                          {ex.how_to_perform && (
+                            <p className="text-[11px] text-slate-300 font-hindi leading-snug pt-0.5">
+                              {ex.how_to_perform}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-3 text-center text-xs text-slate-400 italic">
+                      Click the button above to view full exercise guidelines.
+                    </div>
+                  )}
+                </div>
+
+                {/* Secondary CTA Button at bottom */}
+                <button
+                  type="button"
+                  onClick={onOpenReport}
+                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-700/60 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Printable Prescription Window (प्रिंट विंडो खोलें)</span>
                 </button>
               </div>
             )}
@@ -1489,6 +1619,40 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
             {/* --- ACTIVE STEP CARD (AI DIRECTIVE & QUESTION) --- */}
             {examination.status === 'ACTIVE' && currentStep && (
               <form onSubmit={handleFormSubmit} className="space-y-4">
+                {/* 0. Optional Banner: Switch Exam if operator marked a new area on the 3D mesh */}
+                {selectedPoints && selectedPoints.length > 0 && painPathAnalysis && painPathAnalysis.primary_region && painPathAnalysis.primary_region !== examination.selected_region && (
+                  <div className="bg-amber-950/90 border-2 border-amber-500 rounded-xl p-3 shadow-xl flex items-center justify-between gap-3 animate-in fade-in">
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span className="text-amber-400">⚡</span>
+                        <span>New Area Marked: {painPathAnalysis.pattern_title_en || painPathAnalysis.primary_region.replace('_', ' ')}</span>
+                      </div>
+                      <div className="text-[10px] text-amber-300/80 mt-0.5">
+                        Current exam is on {examination.selected_region.replace('_', ' ')}. Switch AI Doctor exam to this new area?
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onStartExam({
+                          patient_id: examination.patient_id,
+                          patient_name: examination.patient_name || patientName,
+                          patient_age: examination.patient_age || patientAge,
+                          patient_gender: examination.patient_gender || patientGender,
+                          selected_region: painPathAnalysis.primary_region || 'LUMBAR_SPINE',
+                          affected_side: (painPathAnalysis.affected_side as any) || affectedSide,
+                          selected_point: selectedPoint,
+                          selected_points: selectedPoints,
+                          point_analysis: pointAnalysis,
+                          pain_path_analysis: painPathAnalysis,
+                        })
+                      }
+                      className="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-bold text-xs rounded-lg transition-all flex items-center gap-1.5 cursor-pointer flex-shrink-0 shadow"
+                    >
+                      <span>Switch Area →</span>
+                    </button>
+                  </div>
+                )}
                 {/* 1. Step Title & Operator Directive */}
                 <div className="bg-slate-950/90 border border-cyan-500/40 rounded-xl p-4 shadow-lg space-y-3">
                   <div className="flex items-center justify-between">
@@ -1929,7 +2093,9 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                     {isSubmitting ? (
                       <>
                         <RotateCw className="w-4 h-4 animate-spin" />
-                        Computer Vision Analyzing Kinematics...
+                        {currentStep.action_type === 'VIDEO_MOVEMENT'
+                          ? 'Computer Vision Analyzing Kinematics...'
+                          : 'Submitting Response to AI Controller...'}
                       </>
                     ) : (
                       <>

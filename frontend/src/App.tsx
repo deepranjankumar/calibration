@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BodyMeshViewer } from './components/ThreeBodyMesh/BodyMeshViewer';
 import { AIWorkflowPanel } from './components/AIWorkflow/AIWorkflowPanel';
 import { BiomechanicalPanel } from './components/BiomechanicalAnalytics/BiomechanicalPanel';
@@ -6,6 +6,7 @@ import { ClinicalReportModal } from './components/ClinicalReport/ClinicalReportM
 import type { Examination, PatientCalibration, Point3D, PointAnalysis, PainPathAnalysis } from './types/examination';
 import {
   createExamination,
+  getExamination,
   submitStepJson,
   submitStepFormData,
   analyzePainPath,
@@ -30,6 +31,36 @@ export const App: React.FC = () => {
   const [pointAnalysis, setPointAnalysis] = useState<PointAnalysis | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+
+  // Restore existing active examination on page reload or reconnect
+  useEffect(() => {
+    const savedExamId = localStorage.getItem('active_examination_id');
+    if (savedExamId && !examination) {
+      getExamination(savedExamId)
+        .then((exam) => {
+          if (exam) {
+            setExamination(exam);
+            if (exam.selected_region) setSelectedRegion(exam.selected_region);
+            if (exam.affected_side) setAffectedSide(exam.affected_side as 'RIGHT' | 'LEFT');
+            if (exam.patient_calibration) setPatientCalibration(exam.patient_calibration);
+            if (exam.selected_point) setSelectedPoint(exam.selected_point);
+            if (exam.selected_points && exam.selected_points.length > 0) setSelectedPoints(exam.selected_points);
+            if (exam.point_analysis) setPointAnalysis(exam.point_analysis);
+            if (exam.pain_path_analysis) setPainPathAnalysis(exam.pain_path_analysis);
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not restore previous examination session:', err);
+        });
+    }
+  }, []);
+
+  // Sync active exam ID to localStorage
+  useEffect(() => {
+    if (examination?.id) {
+      localStorage.setItem('active_examination_id', examination.id);
+    }
+  }, [examination]);
 
   const handleAddPointToPath = async (point: Point3D) => {
     const updatedPoints = [...selectedPoints, point];
@@ -223,8 +254,7 @@ export const App: React.FC = () => {
       }
 
       setExamination(updatedExam);
-
-      // Auto-open report if completed or urgent referral triggered
+      // Automatically open structured clinical report & prescription upon protocol completion
       if (updatedExam.status === 'COMPLETED' || updatedExam.urgent_referral) {
         setIsReportOpen(true);
       }
@@ -237,10 +267,11 @@ export const App: React.FC = () => {
 
   const handleResetSession = () => {
     if (confirm('Start a new physical examination session? Current progress will be archived.')) {
+      localStorage.removeItem('active_examination_id');
       setExamination(null);
       setSelectedRegion('');
       setAffectedSide('RIGHT');
-      setPatientCalibration(null);
+      // Preserve patient's 3D mesh calibration so operator can immediately select new areas without retaking photo
       setSelectedPoint(null);
       setSelectedPoints([]);
       setPainPathAnalysis(null);
@@ -367,7 +398,7 @@ export const App: React.FC = () => {
               isExamActive={Boolean(examination && examination.status === 'ACTIVE')}
               patientCalibration={effectiveCalibration}
               selectedPoint={selectedPoint || examination?.selected_point}
-              selectedPoints={selectedPoints}
+              selectedPoints={selectedPoints.length > 0 ? selectedPoints : (examination?.selected_points || [])}
               selectionMode={selectionMode}
               onChangeSelectionMode={handleChangeSelectionMode}
               pointAnalysis={pointAnalysis || examination?.point_analysis}

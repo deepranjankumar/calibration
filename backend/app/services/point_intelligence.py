@@ -662,10 +662,11 @@ class AnatomicalPointAnalyzer:
                 },
                 {
                     "test_id": "TEST_STRAIGHT_LEG_RAISE",
-                    "title": "Passive Straight Leg Raise (Lasegue's Test)",
-                    "instruction_en": "Assess for radicular pain reproduction between 35° and 70° of passive straight leg elevation.",
-                    "instruction_hi": "सीधे लेटकर पैर को सीधा ऊपर उठाने पर क्या कमर से पैर तक बिजली जैसा दर्द दौड़ता है?",
-                    "action_type": "QUESTION_CHOICE"
+                    "title": "Straight Leg Raise Test on Bed (Lasegue's Maneuver)",
+                    "instruction_en": "Lie flat on the bed. Lift symptomatic leg straight up without bending knee. Assess if sharp radiating pain is triggered between 35° and 70°.",
+                    "instruction_hi": "बिस्तर पर सीधे लेट जाएं। घुटने को बिना मोड़े पैर को ऊपर सीधा उठाएं।",
+                    "action_type": "VIDEO_MOVEMENT",
+                    "target_joint": "HIP"
                 },
                 {
                     "test_id": "TEST_PALPATION_LUMBAR",

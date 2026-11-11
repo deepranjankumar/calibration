@@ -48,8 +48,6 @@ import {
   ArrowUpRight,
   Activity,
   Undo2,
-  Trash2,
-  Sparkles,
 } from 'lucide-react';
 
 interface BodyMeshViewerProps {
@@ -156,19 +154,19 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
   useEffect(() => {
     if (!activeExamStepId) return;
     const stepUpper = activeExamStepId.toUpperCase();
-    if (stepUpper.includes('STRAIGHT_LEG_RAISE') || stepUpper.includes('SLR')) {
+    if (stepUpper.includes('STRAIGHT_LEG_RAISE') || stepUpper.includes('SLR') || stepUpper.includes('LASEGUE') || stepUpper.includes('BED')) {
       handleSelectDirective('BED_SLR');
-    } else if (stepUpper.includes('GAIT') || stepUpper.includes('WALK')) {
+    } else if (stepUpper.includes('GAIT') || stepUpper.includes('WALK') || stepUpper.includes('FORWARD')) {
       handleSelectDirective('MOVE_FORWARD');
-    } else if (stepUpper.includes('SQUAT') || (stepUpper.includes('ABDUCTION') && !stepUpper.includes('SHOULDER'))) {
+    } else if (stepUpper.includes('SQUAT') || (stepUpper.includes('ABDUCTION') && !stepUpper.includes('SHOULDER')) || stepUpper.includes('SPREAD')) {
       handleSelectDirective('SPREAD_LEGS');
     } else if (stepUpper.includes('CERVICAL') || stepUpper.includes('NECK') || stepUpper.includes('HEAD')) {
       handleSelectDirective('NECK_ROTATION');
     } else if (stepUpper.includes('SHOULDER') || stepUpper.includes('ARM')) {
       handleSelectDirective('SHOULDER_ABDUCTION');
-    } else if (stepUpper.includes('LUMBAR') || stepUpper.includes('SPINE') || stepUpper.includes('BACK')) {
+    } else if (stepUpper.includes('LUMBAR') || stepUpper.includes('SPINE') || stepUpper.includes('BACK') || stepUpper.includes('BEND')) {
       handleSelectDirective('LUMBAR_FLEXION');
-    } else if (stepUpper.includes('FLEXION_EXTENSION') || stepUpper.includes('AROM')) {
+    } else if (stepUpper.includes('FLEXION_EXTENSION') || stepUpper.includes('AROM') || stepUpper.includes('KNEE')) {
       handleSelectDirective('LEG_UP_DOWN');
     }
   }, [activeExamStepId]);
@@ -429,6 +427,16 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
             <span className="text-[10px] text-amber-400 font-mono bg-amber-950 px-1.5 py-0.5 rounded border border-amber-800">
               {selectedPoints.length} Points
             </span>
+            {onUndoPoint && selectedPoints && selectedPoints.length > 1 && (
+              <button
+                type="button"
+                onClick={onUndoPoint}
+                className="p-0.5 text-slate-400 hover:text-amber-400 rounded transition-colors ml-1 cursor-pointer"
+                title="Undo Last Marked Point"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={handleClearPin}
@@ -503,6 +511,31 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
             <span>Radiation Line</span>
           </button>
         </div>
+
+        {/* Start AI Examination Action Button in Top Bar (Unobtrusive & Never Blocks Body) */}
+        {(activePoint || (selectedPoints && selectedPoints.length > 0)) && onStartPointExam && (
+          <button
+            type="button"
+            onClick={() => {
+              if (activePoint && activeAnalysis) {
+                onStartPointExam(activePoint, activeAnalysis);
+              } else if (selectedPoints && selectedPoints.length > 0) {
+                const firstPt = selectedPoints[0];
+                const fallbackAnalysis = activeAnalysis || ({
+                  region_id: selectedRegion || 'LUMBAR_SPINE',
+                  side: affectedSide,
+                  display_name: 'Selected Tissue',
+                } as any);
+                onStartPointExam(firstPt, fallbackAnalysis);
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-extrabold text-xs rounded-xl shadow-lg border border-emerald-400/60 transition-all cursor-pointer pointer-events-auto transform hover:scale-[1.03] animate-pulse"
+            title="Start AI Clinical Examination for Pinned Points & Trajectory"
+          >
+            <Stethoscope className="w-3.5 h-3.5" />
+            <span>🩺 Start Examination ({selectedPoints.length > 0 ? `${selectedPoints.length} Points` : '1 Point'}) →</span>
+          </button>
+        )}
 
         {/* Camera Views & Zoom Toolbar */}
         <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-700/60 p-1 rounded-xl shadow-lg backdrop-blur-md pointer-events-auto">
@@ -649,111 +682,6 @@ export const BodyMeshViewer: React.FC<BodyMeshViewerProps> = ({
           />
         </Canvas>
       </div>
-
-      {/* --- IN-CANVAS FLOATING POINT / LINE CLINICAL DECISION & START EXAM CARD --- */}
-      {(activePoint || (selectedPoints && selectedPoints.length > 0)) && (
-        <div className="absolute top-16 right-3 z-30 pointer-events-auto bg-slate-900/95 border-2 border-cyan-400 rounded-2xl p-3.5 shadow-2xl max-w-xs sm:max-w-sm backdrop-blur-md space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-              <div className="text-[10px] font-mono uppercase font-bold text-cyan-400 tracking-wider">
-                {selectedPoints && selectedPoints.length > 1
-                  ? (selectionMode === 'LINE' ? 'Pain Radiation Trajectory' : 'Multi-Point Tender Zones')
-                  : 'Anatomical Focal Point'}
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-1.5 py-0.2 rounded font-mono font-bold">
-                {selectedPoints && selectedPoints.length > 0 ? `${selectedPoints.length} Pinned` : '1 Pinned'}
-              </span>
-              <button
-                type="button"
-                onClick={handleClearPin}
-                className="p-1 text-slate-400 hover:text-red-400 rounded transition-colors text-xs cursor-pointer"
-                title="Clear Marked Points"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <h4 className="text-xs font-extrabold text-white leading-snug">
-              {painPathAnalysis?.pattern_title_en || activeAnalysis?.display_name || 'Targeted Body Area'}
-            </h4>
-            {painPathAnalysis?.pattern_title_hi && (
-              <p className="text-[11px] text-amber-200 font-hindi mt-0.5 leading-tight">
-                {painPathAnalysis.pattern_title_hi}
-              </p>
-            )}
-            {activeAnalysis?.anatomical_structures?.primary_muscle && !painPathAnalysis && (
-              <p className="text-[11px] text-slate-300 mt-0.5">
-                {activeAnalysis.anatomical_structures.primary_muscle} • {activeAnalysis.anatomical_structures.innervation}
-              </p>
-            )}
-          </div>
-
-          {/* Differential match if available */}
-          {(painPathAnalysis?.differential_diagnosis || activeAnalysis?.cloud_ai_insights?.differential_diagnosis) && (
-            <div className="bg-cyan-950/50 p-2 rounded-lg border border-cyan-800/60 text-[11px]">
-              <div className="text-[9px] font-mono uppercase font-bold text-cyan-300 mb-1 flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-cyan-400" />
-                <span>Suspected Pathology:</span>
-              </div>
-              <div className="text-slate-200 font-medium">
-                {(painPathAnalysis?.differential_diagnosis || activeAnalysis?.cloud_ai_insights?.differential_diagnosis || []).slice(0, 2).join(' • ')}
-              </div>
-            </div>
-          )}
-
-          {/* Direct Start Examination Button */}
-          {onStartPointExam && (
-            <button
-              type="button"
-              onClick={() => {
-                if (activePoint && activeAnalysis) {
-                  onStartPointExam(activePoint, activeAnalysis);
-                } else if (selectedPoints && selectedPoints.length > 0) {
-                  const firstPt = selectedPoints[0];
-                  const fallbackAnalysis = activeAnalysis || ({
-                    region_id: selectedRegion || 'LUMBAR_SPINE',
-                    side: affectedSide,
-                    display_name: 'Selected Tissue',
-                  } as any);
-                  onStartPointExam(firstPt, fallbackAnalysis);
-                }
-              }}
-              className="w-full py-2.5 bg-gradient-to-r from-emerald-600 via-cyan-600 to-blue-600 hover:from-emerald-500 hover:via-cyan-500 hover:to-blue-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-cyan-950 flex items-center justify-center gap-2 transition-all cursor-pointer transform hover:scale-[1.02]"
-            >
-              <Stethoscope className="w-4 h-4 text-cyan-200" />
-              <span>🩺 Start AI Examination (जांच शुरू करें) →</span>
-            </button>
-          )}
-
-          {/* Clear & Undo controls */}
-          <div className="flex items-center justify-between text-[11px] pt-0.5 border-t border-slate-800">
-            {onUndoPoint && selectedPoints && selectedPoints.length > 1 ? (
-              <button
-                type="button"
-                onClick={onUndoPoint}
-                className="text-slate-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors"
-              >
-                <Undo2 className="w-3 h-3" />
-                <span>Undo Last Point</span>
-              </button>
-            ) : <span />}
-
-            <button
-              type="button"
-              onClick={handleClearPin}
-              className="text-slate-400 hover:text-red-400 flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <Trash2 className="w-3 h-3" />
-              <span>Clear All</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* --- DOCTOR PHYSICAL EXAMINATION MODE CONTROLS & DIAGNOSTIC FINDINGS HUD --- */}

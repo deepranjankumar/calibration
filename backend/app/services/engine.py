@@ -277,7 +277,8 @@ class ExaminationWorkflowEngine:
                 pose_analyzer.generate_synthetic_kinematic_video(
                     demo_video_path,
                     side=exam.affected_side,
-                    duration_sec=7
+                    duration_sec=7,
+                    movement_type=step_def.step_id
                 )
                 video_to_analyze = demo_video_path
                 sub.video_filename = Path(demo_video_path).name
@@ -288,7 +289,8 @@ class ExaminationWorkflowEngine:
                 side=exam.affected_side,
                 movement_plane=step_def.input_config.get("plane", "SAGITTAL"),
                 output_annotated_path=annotated_full_path,
-                is_synthetic_demo=use_synthetic_kinematic_demo
+                is_synthetic_demo=use_synthetic_kinematic_demo,
+                movement_type=step_def.step_id
             )
 
             sub.annotated_video_filename = annotated_filename

@@ -50,12 +50,18 @@ import {
   getConsultationHistorySummary,
   type SpeechRecognizerSession,
 } from '../../utils/speechRecognition';
+import {
+  type DoctorExamDirective,
+  DOCTOR_DIRECTIVE_CONFIGS,
+} from '../../utils/doctorExamKinematics';
 
 interface AIWorkflowPanelProps {
   examination: Examination | null;
   patientCalibration?: PatientCalibration | null;
   onCalibratePatient?: (calibration: PatientCalibration) => void;
   onResetCalibration?: () => void;
+  activeDoctorDirective?: DoctorExamDirective;
+  onSelectDoctorDirective?: (dir: DoctorExamDirective) => void;
   onStartExam: (data: {
     patient_id: string;
     patient_name: string;
@@ -100,6 +106,8 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
   onSubmitStep,
   onOpenReport,
   isSubmitting,
+  activeDoctorDirective,
+  onSelectDoctorDirective,
   selectedRegion,
   affectedSide,
   onSelectRegion,
@@ -2010,6 +2018,159 @@ export const AIWorkflowPanel: React.FC<AIWorkflowPanelProps> = ({
                             style={{ display: 'none' }}
                           />
                         </label>
+                      </div>
+
+                      {/* Doctor Physical Examination Directive Selector */}
+                      <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-cyan-300 flex items-center gap-1.5 uppercase font-mono text-[10px]">
+                            🩺 Doctor Physical Examination Presets (शारीरिक हलचल मोड):
+                          </span>
+                          <span className="text-[9px] bg-cyan-950 text-cyan-400 border border-cyan-800 px-1.5 py-0.2 rounded font-mono">
+                            3D Mesh Articulated
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectDoctorDirective) onSelectDoctorDirective('BED_SLR');
+                              setUseSyntheticDemo(true);
+                              speakInIndianHindi(DOCTOR_DIRECTIVE_CONFIGS.BED_SLR.doctorVoicePromptHi);
+                            }}
+                            className={`p-2 rounded-lg border text-left transition-all flex items-center gap-1.5 ${
+                              activeDoctorDirective === 'BED_SLR'
+                                ? 'bg-amber-950 border-amber-500 text-amber-200 shadow-md'
+                                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-amber-500/50'
+                            }`}
+                          >
+                            <span className="text-sm">🛏️</span>
+                            <div className="min-w-0">
+                              <div className="font-bold truncate text-[11px]">1. Lay on Bed & Lift Leg</div>
+                              <div className="text-[10px] text-amber-300 font-hindi truncate">बिस्तर पर लेटें (SLR)</div>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectDoctorDirective) onSelectDoctorDirective('MOVE_FORWARD');
+                              setUseSyntheticDemo(true);
+                              speakInIndianHindi(DOCTOR_DIRECTIVE_CONFIGS.MOVE_FORWARD.doctorVoicePromptHi);
+                            }}
+                            className={`p-2 rounded-lg border text-left transition-all flex items-center gap-1.5 ${
+                              activeDoctorDirective === 'MOVE_FORWARD'
+                                ? 'bg-emerald-950 border-emerald-500 text-emerald-200 shadow-md'
+                                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-emerald-500/50'
+                            }`}
+                          >
+                            <span className="text-sm">🚶</span>
+                            <div className="min-w-0">
+                              <div className="font-bold truncate text-[11px]">2. Move Forward & Stop</div>
+                              <div className="text-[10px] text-emerald-300 font-hindi truncate">आगे चलें व रुकें</div>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectDoctorDirective) onSelectDoctorDirective('SPREAD_LEGS');
+                              setUseSyntheticDemo(true);
+                              speakInIndianHindi(DOCTOR_DIRECTIVE_CONFIGS.SPREAD_LEGS.doctorVoicePromptHi);
+                            }}
+                            className={`p-2 rounded-lg border text-left transition-all flex items-center gap-1.5 ${
+                              activeDoctorDirective === 'SPREAD_LEGS'
+                                ? 'bg-indigo-950 border-indigo-500 text-indigo-200 shadow-md'
+                                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-indigo-500/50'
+                            }`}
+                          >
+                            <span className="text-sm">🦵</span>
+                            <div className="min-w-0">
+                              <div className="font-bold truncate text-[11px]">3. Spread Legs (Stance)</div>
+                              <div className="text-[10px] text-indigo-300 font-hindi truncate">पैर फैलाएं व झुकें</div>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectDoctorDirective) onSelectDoctorDirective('LEG_UP_DOWN');
+                              setUseSyntheticDemo(true);
+                              speakInIndianHindi(DOCTOR_DIRECTIVE_CONFIGS.LEG_UP_DOWN.doctorVoicePromptHi);
+                            }}
+                            className={`p-2 rounded-lg border text-left transition-all flex items-center gap-1.5 ${
+                              activeDoctorDirective === 'LEG_UP_DOWN'
+                                ? 'bg-cyan-950 border-cyan-500 text-cyan-200 shadow-md'
+                                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-cyan-500/50'
+                            }`}
+                          >
+                            <span className="text-sm">🔄</span>
+                            <div className="min-w-0">
+                              <div className="font-bold truncate text-[11px]">4. Leg Up & Down</div>
+                              <div className="text-[10px] text-cyan-300 font-hindi truncate">पैर ऊपर-नीचे करें</div>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectDoctorDirective) onSelectDoctorDirective('NECK_ROTATION');
+                              setUseSyntheticDemo(true);
+                              speakInIndianHindi(DOCTOR_DIRECTIVE_CONFIGS.NECK_ROTATION.doctorVoicePromptHi);
+                            }}
+                            className={`p-2 rounded-lg border text-left transition-all flex items-center gap-1.5 ${
+                              activeDoctorDirective === 'NECK_ROTATION'
+                                ? 'bg-teal-950 border-teal-500 text-teal-200 shadow-md'
+                                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-teal-500/50'
+                            }`}
+                          >
+                            <span className="text-sm">🗣️</span>
+                            <div className="min-w-0">
+                              <div className="font-bold truncate text-[11px]">5. Turn Neck Around</div>
+                              <div className="text-[10px] text-teal-300 font-hindi truncate">गर्दन घुमाएं (Cervical)</div>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectDoctorDirective) onSelectDoctorDirective('SHOULDER_ABDUCTION');
+                              setUseSyntheticDemo(true);
+                              speakInIndianHindi(DOCTOR_DIRECTIVE_CONFIGS.SHOULDER_ABDUCTION.doctorVoicePromptHi);
+                            }}
+                            className={`p-2 rounded-lg border text-left transition-all flex items-center gap-1.5 ${
+                              activeDoctorDirective === 'SHOULDER_ABDUCTION'
+                                ? 'bg-blue-950 border-blue-500 text-blue-200 shadow-md'
+                                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-blue-500/50'
+                            }`}
+                          >
+                            <span className="text-sm">🙆</span>
+                            <div className="min-w-0">
+                              <div className="font-bold truncate text-[11px]">6. Raise Arms Overhead</div>
+                              <div className="text-[10px] text-blue-300 font-hindi truncate">हाथ ऊपर उठाएं (कंधा)</div>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectDoctorDirective) onSelectDoctorDirective('LUMBAR_FLEXION');
+                              setUseSyntheticDemo(true);
+                              speakInIndianHindi(DOCTOR_DIRECTIVE_CONFIGS.LUMBAR_FLEXION.doctorVoicePromptHi);
+                            }}
+                            className={`p-2 rounded-lg border text-left transition-all flex items-center gap-1.5 ${
+                              activeDoctorDirective === 'LUMBAR_FLEXION'
+                                ? 'bg-orange-950 border-orange-500 text-orange-200 shadow-md'
+                                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-orange-500/50'
+                            }`}
+                          >
+                            <span className="text-sm">🙇</span>
+                            <div className="min-w-0">
+                              <div className="font-bold truncate text-[11px]">7. Bend Forward Spine</div>
+                              <div className="text-[10px] text-orange-300 font-hindi truncate">आगे झुकें (कमर/रीढ़)</div>
+                            </div>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Quick Simulated Live Patient Kinematics button */}

@@ -3,7 +3,8 @@ import { BodyMeshViewer } from './components/ThreeBodyMesh/BodyMeshViewer';
 import { AIWorkflowPanel } from './components/AIWorkflow/AIWorkflowPanel';
 import { BiomechanicalPanel } from './components/BiomechanicalAnalytics/BiomechanicalPanel';
 import { ClinicalReportModal } from './components/ClinicalReport/ClinicalReportModal';
-import type { Examination, PatientCalibration, Point3D, PointAnalysis, PainPathAnalysis } from './types/examination';
+import type { Examination, PatientCalibration, Point3D, PointAnalysis, PainPathAnalysis, ClinicalFinding } from './types/examination';
+import type { DoctorExamDirective } from './utils/doctorExamKinematics';
 import {
   createExamination,
   getExamination,
@@ -31,6 +32,7 @@ export const App: React.FC = () => {
   const [pointAnalysis, setPointAnalysis] = useState<PointAnalysis | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+  const [selectedDoctorDirective, setSelectedDoctorDirective] = useState<DoctorExamDirective>('STAND_NEUTRAL');
 
   // Restore existing active examination on page reload or reconnect
   useEffect(() => {
@@ -265,6 +267,25 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleApplyClinicalFinding = (title: string, description: string, severity: string) => {
+    if (!examination) return;
+    const newFinding: ClinicalFinding = {
+      id: `finding-${Date.now()}`,
+      source_category: 'CV_OBSERVATION',
+      code: 'DOCTOR_EXAM_DIRECTIVE',
+      title,
+      description,
+      severity: severity as any,
+      anatomical_site: examination.selected_region,
+      is_provisional: true,
+      created_at: new Date().toISOString(),
+    };
+    setExamination({
+      ...examination,
+      findings: [...(examination.findings || []), newFinding],
+    });
+  };
+
   const handleResetSession = () => {
     if (confirm('Start a new physical examination session? Current progress will be archived.')) {
       localStorage.removeItem('active_examination_id');
@@ -276,6 +297,7 @@ export const App: React.FC = () => {
       setSelectedPoints([]);
       setPainPathAnalysis(null);
       setPointAnalysis(null);
+      setSelectedDoctorDirective('STAND_NEUTRAL');
     }
   };
 
@@ -356,6 +378,8 @@ export const App: React.FC = () => {
           <AIWorkflowPanel
             examination={examination}
             patientCalibration={effectiveCalibration}
+            activeDoctorDirective={selectedDoctorDirective}
+            onSelectDoctorDirective={setSelectedDoctorDirective}
             onCalibratePatient={(calib) => {
               setPatientCalibration(calib);
               if (calib.detected_body_part) {
@@ -396,6 +420,9 @@ export const App: React.FC = () => {
               measurements={examination?.measurements || []}
               findings={examination?.findings || []}
               isExamActive={Boolean(examination && examination.status === 'ACTIVE')}
+              activeExamStepId={examination?.current_step?.step_id}
+              activeDoctorDirective={selectedDoctorDirective}
+              onSelectDoctorDirective={setSelectedDoctorDirective}
               patientCalibration={effectiveCalibration}
               selectedPoint={selectedPoint || examination?.selected_point}
               selectedPoints={selectedPoints.length > 0 ? selectedPoints : (examination?.selected_points || [])}
@@ -403,6 +430,7 @@ export const App: React.FC = () => {
               onChangeSelectionMode={handleChangeSelectionMode}
               pointAnalysis={pointAnalysis || examination?.point_analysis}
               painPathAnalysis={painPathAnalysis || examination?.pain_path_analysis}
+              onApplyClinicalFinding={handleApplyClinicalFinding}
               onSelectPoint={(pt, analysis) => {
                 setSelectedPoint(pt);
                 if (analysis) {
@@ -417,15 +445,24 @@ export const App: React.FC = () => {
               onStartPointExam={async (pt, analysis) => {
                 setSelectedPoint(pt);
                 setPointAnalysis(analysis);
+                const targetRegion = painPathAnalysis?.primary_region || analysis?.region_id || selectedRegion || 'LUMBAR_SPINE';
+                const targetSide = painPathAnalysis?.affected_side && painPathAnalysis.affected_side !== 'BILATERAL'
+                  ? (painPathAnalysis.affected_side as 'RIGHT' | 'LEFT')
+                  : (analysis?.side === 'BILATERAL' ? 'RIGHT' : (analysis?.side || affectedSide));
+
+                const pointsToSend = selectedPoints.length > 0 ? selectedPoints : (pt ? [pt] : []);
+
                 await handleStartExam({
                   patient_id: 'PT-4821',
                   patient_name: 'John Doe',
                   patient_age: 48,
                   patient_gender: 'Male',
-                  selected_region: analysis.region_id,
-                  affected_side: analysis.side === 'BILATERAL' ? 'RIGHT' : analysis.side,
+                  selected_region: targetRegion,
+                  affected_side: targetSide as 'RIGHT' | 'LEFT',
                   selected_point: pt,
+                  selected_points: pointsToSend,
                   point_analysis: analysis,
+                  pain_path_analysis: painPathAnalysis || undefined,
                 });
               }}
               onClearPoint={() => {

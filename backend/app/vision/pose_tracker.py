@@ -72,7 +72,8 @@ class BiomechanicalPoseAnalyzer:
         side: str = "RIGHT",
         movement_plane: str = "SAGITTAL",
         output_annotated_path: Optional[str] = None,
-        is_synthetic_demo: bool = False
+        is_synthetic_demo: bool = False,
+        movement_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Full analysis pipeline of patient movement video.
@@ -136,6 +137,10 @@ class BiomechanicalPoseAnalyzer:
         occluded_frame_count = 0
         valid_frame_count = 0
 
+        initial_torso_dist: Optional[float] = None
+        initial_mid_x: Optional[float] = None
+        initial_mid_y: Optional[float] = None
+
         is_demo = is_synthetic_demo or ("demo_kinematic" in str(video_path))
 
         frame_idx = 0
@@ -176,9 +181,16 @@ class BiomechanicalPoseAnalyzer:
                             vec2 = np.array([pt2.x, pt2.y, pt2.z])
 
                             # Included angle at joint vertex
-                            included_angle = self.calculate_angle_3d(vec1, vec_v, vec2)
-                            orthopedic_flexion = max(0.0, 180.0 - included_angle)
-                            cur_angle = float(orthopedic_flexion)
+                            if "CERVICAL" in joint or "NECK" in joint or "ROTATION" in str(movement_type or "").upper():
+                                # Cervical axial rotation tracking (Nose displacement relative to shoulder midpoint)
+                                mid_sh_x = (landmarks[11].x + landmarks[12].x) / 2.0
+                                sh_width = max(0.05, abs(landmarks[11].x - landmarks[12].x))
+                                disp_ratio = abs(landmarks[0].x - mid_sh_x) / (0.5 * sh_width)
+                                cur_angle = float(min(90.0, max(0.0, disp_ratio * 80.0)))
+                            else:
+                                included_angle = self.calculate_angle_3d(vec1, vec_v, vec2)
+                                orthopedic_flexion = max(0.0, 180.0 - included_angle)
+                                cur_angle = float(orthopedic_flexion)
 
                             p1_pt = (int(pt1.x * width), int(pt1.y * height))
                             vertex_pt = (int(pt_v.x * width), int(pt_v.y * height))
@@ -194,13 +206,44 @@ class BiomechanicalPoseAnalyzer:
                 detected = True
                 valid_frame_count += 1
                 t = timestamp_sec
-                # Flexion movement cycle
-                cur_angle = 11.8 + 112.8 * (0.5 - 0.5 * math.cos(2 * math.pi * t / 6.0))
-                cur_conf = 0.94
-                p1_pt = (int(0.40 * width), int(0.50 * height))
-                vertex_pt = (int(0.57 * width), int(0.50 * height))
-                rad = math.radians(cur_angle)
-                p2_pt = (int(vertex_pt[0] - 80 * math.sin(rad - math.pi / 2)), int(vertex_pt[1] + 80 * math.cos(rad - math.pi / 2)))
+                m_type = str(movement_type or movement_plane or "").upper()
+                if "BED" in m_type or "SLR" in m_type or "STRAIGHT_LEG_RAISE" in m_type:
+                    # Straight Leg Raise: elevates smoothly from 0 deg to 52.4 deg (Lasegue radicular zone)
+                    cur_angle = 52.4 * (0.5 - 0.5 * math.cos(2 * math.pi * t / 6.0))
+                    cur_conf = 0.96
+                    p1_pt = (int(0.35 * width), int(0.65 * height))
+                    vertex_pt = (int(0.50 * width), int(0.65 * height))
+                    rad = math.radians(cur_angle)
+                    p2_pt = (int(vertex_pt[0] + 120 * math.cos(rad)), int(vertex_pt[1] - 120 * math.sin(rad)))
+                elif "GAIT" in m_type or "WALK" in m_type or "MOVE_FORWARD" in m_type:
+                    # Gait locomotion: stance/swing phase cycle
+                    cur_angle = 14.0 + 36.0 * (0.5 - 0.5 * math.cos(2 * math.pi * t / 2.0))
+                    cur_conf = 0.95
+                    p1_pt = (int(0.48 * width), int(0.45 * height))
+                    vertex_pt = (int(0.48 * width), int(0.65 * height))
+                    p2_pt = (int(0.48 * width), int(0.85 * height))
+                elif "SPREAD" in m_type or "SQUAT" in m_type or "ABDUCTION" in m_type:
+                    # Coronal stance abduction & functional squat
+                    cur_angle = 10.0 + 32.0 * (0.5 - 0.5 * math.cos(2 * math.pi * t / 4.0))
+                    cur_conf = 0.95
+                    p1_pt = (int(0.44 * width), int(0.45 * height))
+                    vertex_pt = (int(0.40 * width), int(0.68 * height))
+                    p2_pt = (int(0.38 * width), int(0.88 * height))
+                elif "NECK" in m_type or "CERVICAL" in m_type or "ROTATION" in m_type:
+                    # Cervical bilateral axial rotation: 0 to 76 deg
+                    cur_angle = float(76.0 * abs(math.sin(2 * math.pi * t / 6.0)))
+                    cur_conf = 0.96
+                    p1_pt = (int(0.40 * width), int(0.35 * height))
+                    vertex_pt = (int(0.50 * width), int(0.25 * height))
+                    p2_pt = (int(0.60 * width), int(0.35 * height))
+                else:
+                    # Sagittal knee flexion/extension cycle
+                    cur_angle = 11.8 + 112.8 * (0.5 - 0.5 * math.cos(2 * math.pi * t / 6.0))
+                    cur_conf = 0.94
+                    p1_pt = (int(0.40 * width), int(0.50 * height))
+                    vertex_pt = (int(0.57 * width), int(0.50 * height))
+                    rad = math.radians(cur_angle)
+                    p2_pt = (int(vertex_pt[0] - 80 * math.sin(rad - math.pi / 2)), int(vertex_pt[1] + 80 * math.cos(rad - math.pi / 2)))
 
             if detected:
                 raw_flexion_angles.append(cur_angle)
@@ -214,17 +257,46 @@ class BiomechanicalPoseAnalyzer:
                     mid_h_x = (lms_det[23].x + lms_det[24].x) / 2.0
                     mid_h_y = (lms_det[23].y + lms_det[24].y) / 2.0
                     torso_dist = max(0.08, abs(mid_h_y - (lms_det[11].y + lms_det[12].y) / 2.0))
+
+                    if initial_torso_dist is None or initial_torso_dist <= 0:
+                        initial_torso_dist = torso_dist
+                        initial_mid_x = mid_h_x
+                        initial_mid_y = mid_h_y
+
+                    # Metric forward displacement towards camera as patient walks forward (scale increases)
+                    z_disp = round(float((torso_dist - initial_torso_dist) / max(0.05, initial_torso_dist) * 1.5), 3)
+                    # Lateral displacement across the room floor
+                    x_disp = round(float((mid_h_x - (initial_mid_x or mid_h_x)) * 1.6), 3)
+
                     torso_scale = 0.52 / torso_dist
+
+                    # Check for 3D world landmarks from MediaPipe (metric scale in meters)
+                    has_world = bool(getattr(result, "pose_world_landmarks", None) and len(result.pose_world_landmarks) > 0)
+                    world_lms = result.pose_world_landmarks[0] if has_world else None
+
                     for idx_lm, lm_obj in enumerate(lms_det):
-                        frame_lms.append({
-                            "id": idx_lm,
-                            "x": round(float((lm_obj.x - mid_h_x) * torso_scale), 3),
-                            "y": round(float(-(lm_obj.y - mid_h_y) * torso_scale), 3),
-                            "z": round(float(-lm_obj.z * torso_scale), 3),
-                            "visibility": round(float(getattr(lm_obj, "visibility", 1.0) or 0.8), 2)
-                        })
+                        if world_lms and idx_lm < len(world_lms):
+                            w_lm = world_lms[idx_lm]
+                            # World landmarks are metric with pelvis as origin (x=right, y=down, z=depth)
+                            frame_lms.append({
+                                "id": idx_lm,
+                                "x": round(float(w_lm.x + x_disp), 3),
+                                "y": round(float(-w_lm.y), 3),
+                                "z": round(float(w_lm.z + z_disp), 3),
+                                "visibility": round(float(getattr(lm_obj, "visibility", 1.0) or 0.8), 2)
+                            })
+                        else:
+                            frame_lms.append({
+                                "id": idx_lm,
+                                "x": round(float((lm_obj.x - mid_h_x) * torso_scale + x_disp), 3),
+                                "y": round(float(-(lm_obj.y - mid_h_y) * torso_scale), 3),
+                                "z": round(float(-lm_obj.z * torso_scale + z_disp), 3),
+                                "visibility": round(float(getattr(lm_obj, "visibility", 1.0) or 0.8), 2)
+                            })
                 else:
-                    frame_lms = self._generate_simulated_frame_landmarks(cur_angle, side)
+                    frame_lms = self._generate_simulated_frame_landmarks(
+                        cur_angle, side, movement_type=str(movement_type or movement_plane or ""), timestamp_sec=timestamp_sec
+                    )
 
                 # Sample every 2nd frame to keep payload fast and snappy
                 if frame_idx % 2 == 0 or frame_idx == 0:
@@ -340,10 +412,20 @@ class BiomechanicalPoseAnalyzer:
             "quality_warnings": quality_warnings
         }
 
-    def generate_synthetic_kinematic_video(self, output_path: str, side: str = "RIGHT", duration_sec: int = 6) -> str:
+    def generate_synthetic_kinematic_video(
+        self,
+        output_path: str,
+        side: str = "RIGHT",
+        duration_sec: int = 6,
+        movement_type: str = "SAGITTAL_AROM"
+    ) -> str:
         """
-        Generates an authentic synthetic video depicting a patient performing active knee flexion/extension.
-        Used for seamless live demonstration and testing.
+        Generates an authentic synthetic video depicting a patient performing:
+        - Bed Straight Leg Raise (SLR test on examination bed)
+        - Move Forward & Stop (Gait locomotion)
+        - Spread Legs (Abduction stance & functional squat)
+        - Knee/Hip Sagittal Active Flexion/Extension (AROM)
+        Used for seamless live clinical demonstration, visualization, and testing.
         """
         fps = 30
         total_frames = duration_sec * fps
@@ -351,56 +433,197 @@ class BiomechanicalPoseAnalyzer:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-        # Hip pivot point
-        hip_x, hip_y = 260, 240
+        m_type = str(movement_type).upper()
+        is_bed_slr = "BED" in m_type or "SLR" in m_type or "STRAIGHT_LEG_RAISE" in m_type
+        is_gait = "GAIT" in m_type or "WALK" in m_type or "MOVE_FORWARD" in m_type
+        is_spread = "SPREAD" in m_type or "SQUAT" in m_type or "ABDUCTION" in m_type
+        is_neck = "NECK" in m_type or "CERVICAL" in m_type or "ROTATION" in m_type
+
+        # Anchor points
         femur_length = 110
         tibia_length = 110
 
         for f in range(total_frames):
-            frame = np.ones((height, width, 3), dtype=np.uint8) * 240 # Light medical clinic background
-            
-            # Draw examination bench
-            cv2.rectangle(frame, (180, 250), (380, 420), (190, 195, 205), -1)
-            cv2.line(frame, (180, 250), (380, 250), (120, 130, 140), 3)
+            frame = np.ones((height, width, 3), dtype=np.uint8) * 242 # Clean light medical aesthetic
 
-            # Leg motion: sitting upright, extending leg to ~8° (near straight) and flexing to ~124°
             phase = (f / total_frames) * 2 * math.pi
-            # Flexion angle (0 = horizontal straight, 90 = vertical down, >90 = bent backwards)
-            # Normal human sitting knee angle: ~90 deg resting, 5 deg extended, 125 deg flexed
-            flexion_deg = 65.0 + 55.0 * math.sin(phase - math.pi / 2) # goes from 10 to 120
-            
-            # Femur is horizontal forward
-            knee_x = hip_x + femur_length
-            knee_y = hip_y
-            
-            # Tibia angle
-            # at 0 flexion, tibia extends straight along femur
-            # at 90 flexion, tibia points straight down
-            rad = math.radians(flexion_deg)
-            ankle_x = int(knee_x - tibia_length * math.sin(rad - math.pi/2))
-            ankle_y = int(knee_y + tibia_length * math.cos(rad - math.pi/2))
 
-            # Draw patient silhouette/limbs
-            # Torso
-            cv2.line(frame, (hip_x - 10, hip_y - 120), (hip_x, hip_y), (80, 100, 120), 16)
-            # Head
-            cv2.circle(frame, (hip_x - 15, hip_y - 150), 22, (200, 180, 160), -1)
-            # Thigh (femur)
-            cv2.line(frame, (hip_x, hip_y), (knee_x, knee_y), (60, 80, 110), 18)
-            # Shank (tibia)
-            cv2.line(frame, (knee_x, knee_y), (ankle_x, ankle_y), (60, 80, 110), 14)
-            # Joints
-            cv2.circle(frame, (hip_x, hip_y), 10, (40, 50, 70), -1)
-            cv2.circle(frame, (knee_x, knee_y), 12, (220, 60, 50), -1)
-            cv2.circle(frame, (ankle_x, ankle_y), 8, (40, 50, 70), -1)
+            if is_bed_slr:
+                # -------------------------------------------------------------
+                # 1. BED EXAMINATION: Supine Straight Leg Raise (SLR / Lasegue)
+                # -------------------------------------------------------------
+                # Examination Bed Plinth
+                bed_top_y = 310
+                cv2.rectangle(frame, (60, bed_top_y), (580, bed_top_y + 40), (14, 25, 42), -1)
+                # Cyan glowing bed trim
+                cv2.line(frame, (60, bed_top_y), (580, bed_top_y), (255, 230, 0), 3)
+                # Bed Pedestal Column
+                cv2.rectangle(frame, (280, bed_top_y + 40), (360, 420), (70, 80, 95), -1)
+                # Pillow
+                cv2.rectangle(frame, (70, bed_top_y - 25), (150, bed_top_y), (200, 210, 220), -1)
 
-            # Subtitle
-            cv2.putText(
-                frame,
-                f"Synthetic Clinical Patient: {side} Knee Sagittal AROM (Simulated)",
-                (20, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (50, 50, 50), 1
-            )
+                # Supine patient elevation angle (0 to 65 deg)
+                cycle = 0.5 - 0.5 * math.cos(phase)
+                slr_angle = cycle * 62.0
+                rad = math.radians(slr_angle)
+
+                # Supine body
+                hip_x, hip_y = 300, bed_top_y - 12
+                shoulder_x, shoulder_y = 160, bed_top_y - 12
+                head_x, head_y = 115, bed_top_y - 18
+
+                # Torso & Head
+                cv2.line(frame, (head_x, head_y), (shoulder_x, shoulder_y), (80, 100, 120), 12)
+                cv2.circle(frame, (head_x, head_y), 20, (200, 180, 160), -1)
+                cv2.line(frame, (shoulder_x, shoulder_y), (hip_x, hip_y), (60, 80, 110), 20)
+
+                # Flat non-affected leg along bed
+                cv2.line(frame, (hip_x, hip_y + 6), (510, bed_top_y - 8), (140, 150, 170), 12)
+
+                # Affected straight leg elevated (Knee straight, rotating at hip)
+                knee_x = int(hip_x + femur_length * math.cos(rad))
+                knee_y = int(hip_y - femur_length * math.sin(rad))
+                ankle_x = int(knee_x + tibia_length * math.cos(rad))
+                ankle_y = int(knee_y - tibia_length * math.sin(rad))
+
+                # Sciatica Nerve Warning Indicator if in symptomatic arc (35° to 65°)
+                leg_color = (0, 70, 240) if 30.0 <= slr_angle <= 65.0 else (50, 90, 140)
+                cv2.line(frame, (hip_x, hip_y), (knee_x, knee_y), leg_color, 16)
+                cv2.line(frame, (knee_x, knee_y), (ankle_x, ankle_y), leg_color, 13)
+
+                # Joints
+                cv2.circle(frame, (hip_x, hip_y), 9, (30, 40, 60), -1)
+                cv2.circle(frame, (knee_x, knee_y), 10, (240, 180, 0), -1)
+                cv2.circle(frame, (ankle_x, ankle_y), 8, (30, 40, 60), -1)
+
+                # Subtitle HUD
+                cv2.putText(
+                    frame,
+                    f"EXAM BED: {side} Straight Leg Raise (SLR) - Elevation: {slr_angle:.1f} deg",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (20, 30, 50), 2
+                )
+                if 30.0 <= slr_angle <= 65.0:
+                    cv2.putText(
+                        frame,
+                        "⚡ L4/L5 SCIATIC NERVE IMPINGEMENT ZONE (POSITIVE LASEGUE SIGN)",
+                        (20, 55),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 220), 2
+                    )
+
+            elif is_gait:
+                # -------------------------------------------------------------
+                # 2. GAIT: Move Forward & Stop
+                # -------------------------------------------------------------
+                walk_progress = min(1.0, f / (total_frames * 0.75))
+                is_moving = f < int(total_frames * 0.75)
+                gait_x = int(140 + walk_progress * 340)
+                gait_phase = phase * 2.0 if is_moving else 0.0
+
+                hip_x, hip_y = gait_x, 240
+                stride = int(math.sin(gait_phase) * 35) if is_moving else 0
+
+                # Floor grid
+                cv2.line(frame, (50, 420), (590, 420), (180, 190, 200), 2)
+                cv2.putText(frame, "STOP LINE", (460, 415), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 120, 220), 1)
+                cv2.line(frame, (480, 380), (480, 430), (0, 140, 255), 2)
+
+                # Body
+                cv2.line(frame, (hip_x, hip_y - 120), (hip_x, hip_y), (80, 100, 120), 18)
+                cv2.circle(frame, (hip_x, hip_y - 150), 22, (200, 180, 160), -1)
+
+                # Legs
+                cv2.line(frame, (hip_x, hip_y), (hip_x + stride, 340), (60, 80, 110), 14)
+                cv2.line(frame, (hip_x + stride, 340), (hip_x + stride, 415), (60, 80, 110), 12)
+                cv2.line(frame, (hip_x, hip_y), (hip_x - stride, 340), (120, 135, 155), 14)
+                cv2.line(frame, (hip_x - stride, 340), (hip_x - stride, 415), (120, 135, 155), 12)
+
+                status_txt = "MOVING FORWARD (GAIT STANCE)" if is_moving else "HALTED AT STOP LINE - OTTAWA 4-STEP PASSED"
+                cv2.putText(frame, f"GAIT ANALYSIS: {status_txt}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (20, 30, 50), 2)
+
+            elif is_spread:
+                # -------------------------------------------------------------
+                # 3. SPREAD LEGS: Abduction Stance & Functional Squat
+                # -------------------------------------------------------------
+                hip_x, hip_y = 320, 220
+                spread = int(55 + 40 * (0.5 - 0.5 * math.cos(phase * 0.5)))
+                squat_dip = int(max(0, math.sin(phase)) * 40)
+
+                pelvis_y = hip_y + squat_dip
+                cv2.line(frame, (hip_x, pelvis_y - 120), (hip_x, pelvis_y), (80, 100, 120), 20)
+                cv2.circle(frame, (hip_x, pelvis_y - 150), 22, (200, 180, 160), -1)
+
+                # Left and Right Legs
+                cv2.line(frame, (hip_x - 15, pelvis_y), (hip_x - spread, pelvis_y + 80), (60, 80, 110), 16)
+                cv2.line(frame, (hip_x - spread, pelvis_y + 80), (hip_x - spread - 15, 415), (60, 80, 110), 13)
+                cv2.line(frame, (hip_x + 15, pelvis_y), (hip_x + spread, pelvis_y + 80), (60, 80, 110), 16)
+                cv2.line(frame, (hip_x + spread, pelvis_y + 80), (hip_x + spread + 15, 415), (60, 80, 110), 13)
+
+                cv2.putText(
+                    frame,
+                    f"SPREAD LEGS STANCE: Coronal Abduction Width {spread*2}px • Squat Dip {squat_dip}px",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.50, (20, 30, 50), 2
+                )
+
+            elif is_neck:
+                # -------------------------------------------------------------
+                # 4. CERVICAL ROTATION: Neck Axial Rotation Left and Right
+                # -------------------------------------------------------------
+                head_x, head_y = 320, 180
+                shoulder_y = 265
+                rot_deg = 76.0 * math.sin(phase)
+                nose_shift = int(rot_deg * 0.9)
+
+                # Shoulders & Torso
+                cv2.line(frame, (210, shoulder_y), (430, shoulder_y), (80, 100, 120), 18)
+                cv2.line(frame, (320, shoulder_y), (320, 420), (60, 80, 110), 22)
+                # Cervical spine column
+                cv2.line(frame, (320, shoulder_y), (320, head_y + 42), (40, 60, 80), 16)
+                # Cranial Head
+                cv2.circle(frame, (head_x, head_y), 44, (200, 180, 160), -1)
+                # Nose / Chin direction pointer
+                cv2.line(frame, (head_x, head_y), (head_x + nose_shift, head_y), (0, 140, 255), 8)
+                cv2.circle(frame, (head_x + nose_shift, head_y), 10, (0, 100, 240), -1)
+
+                direction_label = "LEFT" if rot_deg < 0 else "RIGHT"
+                cv2.putText(
+                    frame,
+                    f"CERVICAL ROTATION: {abs(rot_deg):.1f} deg {direction_label} (Normal: 70-80 deg)",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.50, (20, 30, 50), 2
+                )
+
+            else:
+                # -------------------------------------------------------------
+                # 4. DEFAULT: Sitting Knee/Hip Sagittal Active Flexion/Extension
+                # -------------------------------------------------------------
+                hip_x, hip_y = 260, 240
+                cv2.rectangle(frame, (180, 250), (380, 420), (190, 195, 205), -1)
+                cv2.line(frame, (180, 250), (380, 250), (120, 130, 140), 3)
+
+                flexion_deg = 65.0 + 55.0 * math.sin(phase - math.pi / 2)
+                knee_x = hip_x + femur_length
+                knee_y = hip_y
+                rad = math.radians(flexion_deg)
+                ankle_x = int(knee_x - tibia_length * math.sin(rad - math.pi / 2))
+                ankle_y = int(knee_y + tibia_length * math.cos(rad - math.pi / 2))
+
+                cv2.line(frame, (hip_x - 10, hip_y - 120), (hip_x, hip_y), (80, 100, 120), 16)
+                cv2.circle(frame, (hip_x - 15, hip_y - 150), 22, (200, 180, 160), -1)
+                cv2.line(frame, (hip_x, hip_y), (knee_x, knee_y), (60, 80, 110), 18)
+                cv2.line(frame, (knee_x, knee_y), (ankle_x, ankle_y), (60, 80, 110), 14)
+                cv2.circle(frame, (hip_x, hip_y), 10, (40, 50, 70), -1)
+                cv2.circle(frame, (knee_x, knee_y), 12, (220, 60, 50), -1)
+                cv2.circle(frame, (ankle_x, ankle_y), 8, (40, 50, 70), -1)
+
+                cv2.putText(
+                    frame,
+                    f"Synthetic Clinical Patient: {side} Knee Sagittal AROM (Simulated)",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.50, (50, 50, 50), 1
+                )
+
             out.write(frame)
 
         out.release()
@@ -892,25 +1115,141 @@ class BiomechanicalPoseAnalyzer:
             "annotated_image_filename": Path(output_annotated_path).name if output_annotated_path else None
         }
 
-    def _generate_simulated_frame_landmarks(self, flexion_deg: float, side: str = "RIGHT") -> List[Dict[str, Any]]:
-        """Generates frame 3D landmarks for simulated motion playback."""
+    def _generate_simulated_frame_landmarks(
+        self,
+        flexion_deg: float,
+        side: str = "RIGHT",
+        movement_type: str = "LEG_UP_DOWN",
+        timestamp_sec: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Generates frame 3D landmarks for simulated motion playback:
+        - Bed Straight Leg Raise (SLR): patient supine on bed with straight leg elevation
+        - Move Forward & Stop: forward gait strides with halt
+        - Spread Legs: coronal hip abduction with functional squat
+        - Leg Up/Down: sagittal knee flexion/extension
+        """
         base = self._get_fallback_patient_calibration()["landmarks_3d"]
         lms = [dict(lm) for lm in base]
         is_left = side.upper() == "LEFT"
-        knee_idx = 25 if is_left else 26
-        ankle_idx = 27 if is_left else 28
-        foot_idx = 31 if is_left else 32
-        
-        knee = lms[knee_idx]
-        rad = math.radians(flexion_deg)
-        shin_len = 0.46
-        # At 0 flexion, shin extends straight down (y = knee_y - shin_len, z = knee_z)
-        # As flexion increases, knee bends backwards (z becomes negative, ankle rises)
-        lms[ankle_idx]["y"] = round(knee["y"] - shin_len * math.cos(rad), 3)
-        lms[ankle_idx]["z"] = round(knee["z"] - shin_len * math.sin(rad), 3)
-        lms[foot_idx]["y"] = round(lms[ankle_idx]["y"] - 0.05, 3)
-        lms[foot_idx]["z"] = round(lms[ankle_idx]["z"] + 0.12, 3)
-        return lms
+        m_type = str(movement_type).upper()
+
+        if "BED" in m_type or "SLR" in m_type or "STRAIGHT_LEG_RAISE" in m_type:
+            # -------------------------------------------------------------
+            # 1. BED SLR TEST: Supine horizontal posture
+            # -------------------------------------------------------------
+            bed_y = -0.19
+            rad = math.radians(flexion_deg)
+            thigh_l = 0.44
+            shin_l = 0.44
+            mid_hip_z = 0.12
+
+            # Head & Torso horizontal on bed
+            lms[0]["y"] = bed_y + 0.09
+            lms[0]["z"] = -0.65
+            lms[11]["y"] = bed_y + 0.05
+            lms[11]["z"] = -0.42
+            lms[12]["y"] = bed_y + 0.05
+            lms[12]["z"] = -0.42
+            lms[23]["y"] = bed_y
+            lms[23]["z"] = mid_hip_z
+            lms[24]["y"] = bed_y
+            lms[24]["z"] = mid_hip_z
+
+            # Non-affected leg flat
+            non_aff_knee = 26 if is_left else 25
+            non_aff_ankle = 28 if is_left else 27
+            non_aff_foot = 32 if is_left else 31
+            lms[non_aff_knee]["y"] = bed_y
+            lms[non_aff_knee]["z"] = mid_hip_z + thigh_l
+            lms[non_aff_ankle]["y"] = bed_y
+            lms[non_aff_ankle]["z"] = mid_hip_z + thigh_l + shin_l
+            lms[non_aff_foot]["y"] = bed_y + 0.08
+            lms[non_aff_foot]["z"] = mid_hip_z + thigh_l + shin_l + 0.06
+
+            # Affected leg straight elevation (SLR: knee remains straight)
+            aff_knee = 25 if is_left else 26
+            aff_ankle = 27 if is_left else 28
+            aff_foot = 31 if is_left else 32
+
+            lms[aff_knee]["y"] = round(bed_y + thigh_l * math.sin(rad), 3)
+            lms[aff_knee]["z"] = round(mid_hip_z + thigh_l * math.cos(rad), 3)
+            lms[aff_ankle]["y"] = round(bed_y + (thigh_l + shin_l) * math.sin(rad), 3)
+            lms[aff_ankle]["z"] = round(mid_hip_z + (thigh_l + shin_l) * math.cos(rad), 3)
+            lms[aff_foot]["y"] = round(lms[aff_ankle]["y"] + 0.10 * math.cos(rad), 3)
+            lms[aff_foot]["z"] = round(lms[aff_ankle]["z"] + 0.10 * math.sin(rad), 3)
+            return lms
+
+        elif "GAIT" in m_type or "WALK" in m_type or "MOVE_FORWARD" in m_type:
+            # -------------------------------------------------------------
+            # 2. GAIT: Move Forward & Stop
+            # -------------------------------------------------------------
+            progress = min(1.0, timestamp_sec / 4.5)
+            z_offset = -0.55 + progress * 0.85
+            is_moving = timestamp_sec < 4.5
+            gait_phase = (timestamp_sec / 1.5) * 2 * math.pi if is_moving else 0.0
+            stride = math.sin(gait_phase) * 0.22 if is_moving else 0.0
+
+            for lm in lms:
+                lm["z"] = round(lm["z"] + z_offset, 3)
+
+            # Left and right leg alternating swing
+            lms[25]["z"] = round(lms[25]["z"] - stride * 0.5, 3)
+            lms[26]["z"] = round(lms[26]["z"] + stride * 0.5, 3)
+            lms[27]["z"] = round(lms[27]["z"] - stride, 3)
+            lms[28]["z"] = round(lms[28]["z"] + stride, 3)
+            return lms
+
+        elif "SPREAD" in m_type or "SQUAT" in m_type or "ABDUCTION" in m_type:
+            # -------------------------------------------------------------
+            # 3. SPREAD LEGS: Abduction stance & squat dip
+            # -------------------------------------------------------------
+            squat_dip = max(0.0, math.sin(timestamp_sec * 1.5)) * 0.12
+            spread_x = 0.35
+            lms[23]["x"] = 0.22
+            lms[24]["x"] = -0.22
+            lms[25]["x"] = spread_x * 0.92
+            lms[26]["x"] = -spread_x * 0.92
+            lms[27]["x"] = spread_x
+            lms[28]["x"] = -spread_x
+            lms[23]["y"] = round(lms[23]["y"] - squat_dip, 3)
+            lms[24]["y"] = round(lms[24]["y"] - squat_dip, 3)
+            lms[25]["y"] = round(lms[25]["y"] - squat_dip * 0.5, 3)
+            lms[26]["y"] = round(lms[26]["y"] - squat_dip * 0.5, 3)
+            return lms
+
+        elif "NECK" in m_type or "CERVICAL" in m_type or "ROTATION" in m_type:
+            # -------------------------------------------------------------
+            # 4. CERVICAL ROTATION: Axial neck rotation left and right
+            # -------------------------------------------------------------
+            rot_rad = math.radians(flexion_deg * math.sin(timestamp_sec * 1.5))
+            nose_radius = 0.13
+            ear_radius = 0.095
+            lms[0]["x"] = round(math.sin(rot_rad) * nose_radius, 3)
+            lms[0]["z"] = round(math.cos(rot_rad) * nose_radius, 3)
+            if len(lms) > 8:
+                lms[7]["x"] = round(-math.cos(rot_rad) * ear_radius, 3)
+                lms[7]["z"] = round(-math.sin(rot_rad) * ear_radius, 3)
+                lms[8]["x"] = round(math.cos(rot_rad) * ear_radius, 3)
+                lms[8]["z"] = round(math.sin(rot_rad) * ear_radius, 3)
+            return lms
+
+        else:
+            # -------------------------------------------------------------
+            # 4. DEFAULT: Sagittal Sitting/Standing Knee Flexion/Extension
+            # -------------------------------------------------------------
+            knee_idx = 25 if is_left else 26
+            ankle_idx = 27 if is_left else 28
+            foot_idx = 31 if is_left else 32
+            
+            knee = lms[knee_idx]
+            rad = math.radians(flexion_deg)
+            shin_len = 0.46
+            lms[ankle_idx]["y"] = round(knee["y"] - shin_len * math.cos(rad), 3)
+            lms[ankle_idx]["z"] = round(knee["z"] - shin_len * math.sin(rad), 3)
+            lms[foot_idx]["y"] = round(lms[ankle_idx]["y"] - 0.05, 3)
+            lms[foot_idx]["z"] = round(lms[ankle_idx]["z"] + 0.12, 3)
+            return lms
 
 # Global singleton
 pose_analyzer = BiomechanicalPoseAnalyzer()
